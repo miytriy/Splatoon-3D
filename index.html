@@ -112,11 +112,20 @@
 
    NOT yet ported (left for a later pass, once this movement/camera/weapon
    core feels right):
-     - the ink coverage system (paint layer, turf-score points, swim-speed
-       boost on own ink) — impacts are shown with a simple flat decal only,
-       for visual feedback, not tracked as coverage
+     - the ink coverage system (paint layer, turf-score points) — impacts
+       are shown with a simple flat decal only, for visual feedback, not
+       tracked as coverage. "自陣インク上か" for squid-speed purposes is
+       still approximated via isOnOwnInk() (proximity to a decal); real
+       team-ink tracking (and therefore "敵インク上でイカダッシュ不可" /
+       can't-swim-on-enemy-ink) is not implemented.
      - the other two weapons, sub weapon, both specials
      - walls/obstacles, HUD overlays (pause/menu/customize)
+
+   Movement now uses a real acceleration model (see getCurrentAccelMPerS2 /
+   getTargetSpeedMPerS / updateMovement): base 0.01m/F² accel toward the
+   weight-class-correct human/squid target speed, 0.02m/F² during
+   firing/sub-special action states, and a Bold-Marker-only 0.015m/F²
+   squid exception (currently unused since WEAPON.isBoldMarker is false).
 
    Camera fix: the camera previously sat IN FRONT of the player (offset
    along +forward instead of -forward), and the WASD/shot-direction math
@@ -142,6 +151,9 @@ const METERS_PER_LINE = 5;
 const DU_PER_METER = 10;
 const FPS = 60;
 function duPerFrameToMPerSec(v){ return (v / DU_PER_METER) * FPS; }
+// DU/F² (1フレームあたりの速度変化量、DU単位) を m/s² へ変換。
+// 1フレーム = 1/FPS 秒なので、フレーム基準の加速度を秒基準にするには FPS² を掛ける。
+function duPerF2ToMPerS2(v){ return (v / DU_PER_METER) * FPS * FPS; }
 function framesToSeconds(f){ return f / FPS; }
 function linesToMeters(n){ return n * METERS_PER_LINE; }
 
@@ -149,6 +161,8 @@ function linesToMeters(n){ return n * METERS_PER_LINE; }
 // ink-paint-prototype.html WEAPONS[0] for the annotated source/derivation).
 const WEAPON = {
   name: 'スプラシューター',
+  weightClass: 'medium', // 中量級。スプラシューターは重量/軽量どちらの専用ギア補正も前提にしない標準速度帯のブキとして分類。
+  isBoldMarker: false,   // ボールドマーカーのみイカ速の加速度が特別(基準の1.5倍)になるための判定フラグ。
   maxRangeLines: 2.7,
   fireIntervalSec: framesToSeconds(6),
   inkPerShot: 100 / 108,
@@ -157,11 +171,36 @@ const WEAPON = {
   spreadDeg: 4.86,
 };
 
+// ==========================================================================
+// 移動速度テーブル (DU/フレーム) — ブキ重量ごとの実データ。
+// ヒト速は自分のインク上/塗れない床の上でも変化しない(仕様通り一定)。
+// イカ速は「自陣インク上」「インクのない床・塗れない床」で分岐する。
+// 「敵インク上ではイカダッシュ不可(泳げない)」は、このプロトタイプに
+// まだチーム/敵インクの概念が無いため未実装(コメントで明記のみ)。
+// ==========================================================================
+const HUMAN_SPEED_DU_PER_F = { light: 1.04, medium: 0.96, heavy: 0.88 };
+const SQUID_SPEED_ON_INK_DU_PER_F = { light: 2.016, medium: 1.920, heavy: 1.728 };
+const SQUID_SPEED_OFF_INK_DU_PER_F = 0.66; // 全ブキ重量共通、ギアの影響も受けない
+
+// ==========================================================================
+// 加速度の基準値 (DU/F²)
+//  - 基準: 0.1 (ヒト速・イカ速・重量問わず、通常はこの値で目標速度へ加減速)
+//  - ボールドマーカーのみイカ速加速度が 0.15 (基準の1.5倍。ヒト速は基準のまま)
+//  - メイン射撃中／サブ・スペシャル攻撃中・構えモーション中は 0.2 (基準の2倍)。
+//    ボールドマーカーでこの状態になっても 0.15×2=0.3 にはならず 0.2 のまま。
+// ==========================================================================
+const ACCEL_BASE_DU_PER_F2 = 0.1;
+const ACCEL_BOLD_SQUID_DU_PER_F2 = 0.15;
+const ACCEL_ACTION_DU_PER_F2 = 0.2;
+
 const player = {
   ink: 100, maxInk: 100,
   regenRate: 10, // ink/sec, natural regen only (matches ヒト状態 in the 2D version)
-  walkSpeed: 4.4,   // m/s, approximate stand-in for the 2D prototype's ヒト速 (full weight-class table not ported yet)
-  shootSpeed: 2.6,  // m/s while firing (シューター種は射撃中に減速する仕様を反映)
+  vx: 0, vz: 0, // 現在の実速度 (m/s, ワールド座標)。加速度システムにより毎フレーム目標速度へ漸近する。
+  humanSpeed: duPerFrameToMPerSec(HUMAN_SPEED_DU_PER_F[WEAPON.weightClass]),
+  squidSpeedOnInk: duPerFrameToMPerSec(SQUID_SPEED_ON_INK_DU_PER_F[WEAPON.weightClass]),
+  squidSpeedOffInk: duPerFrameToMPerSec(SQUID_SPEED_OFF_INK_DU_PER_F),
+  shootSpeed: 2.6,  // m/s while firing — 公式テーブルに射撃中速度の値は含まれないため、2Dプロトタイプ踏襲の暫定値のまま
 };
 
 // ==========================================================================
@@ -542,30 +581,96 @@ window.addEventListener('mouseup', e => {
 });
 renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
 
-function updateMovement(dt, firing){
+// ==========================================================================
+// 加速度システム
+// --------------------------------------------------------------------------
+// 基準加速度は 0.01m/F²(0.1DU/F²)。スティックを全力で倒した際、この値で
+// 1フレームごとに目標速度へ近づいていく。目標速度がゼロ(キーを離した)や
+// 逆方向(反対キーを倒した)の場合の減速も、同じ加速度の値で速度が
+// マイナス方向に変化していくだけ(=同じ式で加減速両方をカバーできる)。
+//
+// 状態による例外:
+//   ・ボールドマーカーのみ、イカ速のときの加速度が 0.015m/F²(1.5倍)。
+//     ヒト速の加速度は他ブキと同じ基準値のまま変化しない。
+//   ・メイン射撃中、またはサブ・スペシャルの攻撃中/構えモーション中は、
+//     加速度が 0.02m/F²(基準の2倍)になる。これらの動作中にイカ状態へ
+//     切り替わった場合もこの値が優先して適用される(ボールドマーカーの
+//     1.5倍とは重複しない=0.15×2の3倍にはならず、常に0.02のまま)。
+//
+// t = 最高速度 ÷ 加速度 で最高速到達までのフレーム数が求まる
+// (例: ボールドマーカーのイカ速 2.016DU/F ÷ 0.15DU/F² = 13.44F ≈ 14F —
+//  この関係は m/s ÷ m/s² = 秒 でも同様に成立するため、下記は秒基準の
+//  dt積分で実装しても仕様と一致する)。
+// ==========================================================================
+function getCurrentAccelMPerS2(actionState){
+  if (actionState) return duPerF2ToMPerS2(ACCEL_ACTION_DU_PER_F2);
+  if (form === 'squid' && WEAPON.isBoldMarker) return duPerF2ToMPerS2(ACCEL_BOLD_SQUID_DU_PER_F2);
+  return duPerF2ToMPerS2(ACCEL_BASE_DU_PER_F2);
+}
+
+// 現在の状態(ヒト/イカ、射撃中、自陣インク上か)から目標最高速度(m/s)を返す。
+// ヒト速は仕様通り、インクの有無や床の種類による変化を持たない。
+function getTargetSpeedMPerS(firing){
+  if (form === 'squid'){
+    // 「敵インク上ではイカダッシュ不可(泳げない)」は、このプロトタイプに
+    // チーム/敵インクの概念がまだ無いため未実装。自陣インク判定は既存の
+    // isOnOwnInk()(着弾デコールへの近接判定)による近似のまま。
+    return isOnOwnInk() ? player.squidSpeedOnInk : player.squidSpeedOffInk;
+  }
+  return firing ? player.shootSpeed : player.humanSpeed;
+}
+
+function updateMovement(dt, firing, actionState){
   let moveX = 0, moveZ = 0;
   if (keys.w) moveZ -= 1;
   if (keys.s) moveZ += 1;
   if (keys.a) moveX -= 1;
   if (keys.d) moveX += 1;
-  if (!moveX && !moveZ) return;
+  const hasInput = moveX !== 0 || moveZ !== 0;
 
-  const len = Math.hypot(moveX, moveZ);
-  moveX /= len; moveZ /= len;
+  let targetVX = 0, targetVZ = 0;
+  if (hasInput){
+    const len = Math.hypot(moveX, moveZ);
+    moveX /= len; moveZ /= len;
 
-  // Movement stays flat (pitch ignored) and uses the same yaw-derived
-  // forward/right basis as getAimDirection()/getFlatForward(), so 'W'
-  // always walks toward where the camera/crosshair is pointing.
-  const forward = getFlatForward(), right = getFlatRight();
-  const worldX = -moveZ * forward.x + moveX * right.x;
-  const worldZ = -moveZ * forward.z + moveX * right.z;
+    // Movement stays flat (pitch ignored) and uses the same yaw-derived
+    // forward/right basis as getAimDirection()/getFlatForward(), so 'W'
+    // always walks toward where the camera/crosshair is pointing.
+    const forward = getFlatForward(), right = getFlatRight();
+    const worldX = -moveZ * forward.x + moveX * right.x;
+    const worldZ = -moveZ * forward.z + moveX * right.z;
 
-  const speed = firing ? player.shootSpeed : player.walkSpeed;
-  const nx = playerGroup.position.x + worldX * speed * dt;
-  const nz = playerGroup.position.z + worldZ * speed * dt;
+    const targetSpeed = getTargetSpeedMPerS(firing);
+    targetVX = worldX * targetSpeed;
+    targetVZ = worldZ * targetSpeed;
+  }
+  // 入力が無ければ目標速度はゼロ = 現在の加速度でブレーキがかかっていく
+
+  const accel = getCurrentAccelMPerS2(actionState);
+  const dvx = targetVX - player.vx;
+  const dvz = targetVZ - player.vz;
+  const dvLen = Math.hypot(dvx, dvz);
+  const maxStep = accel * dt;
+
+  if (dvLen <= maxStep || dvLen === 0){
+    player.vx = targetVX;
+    player.vz = targetVZ;
+  } else {
+    // 目標速度への差分ベクトルの向きへ、加速度分だけ速度を変化させる。
+    // 逆方向入力時もこの式のまま(差分ベクトルが大きくなるだけ)で、
+    // 同じ加速度でゼロを通過して減速→加速する挙動になる。
+    player.vx += (dvx / dvLen) * maxStep;
+    player.vz += (dvz / dvLen) * maxStep;
+  }
+
+  const nx = playerGroup.position.x + player.vx * dt;
+  const nz = playerGroup.position.z + player.vz * dt;
   const clamped = clampToArena(nx, nz, PLAYER_RADIUS);
   playerGroup.position.x = clamped.x;
   playerGroup.position.z = clamped.z;
+  // 壁でクランプされた軸は速度も止める(張り付いたまま速度だけ溜まるのを防止)。
+  if (clamped.x !== nx) player.vx = 0;
+  if (clamped.z !== nz) player.vz = 0;
 }
 
 // ==========================================================================
@@ -702,7 +807,10 @@ function loop(now){
   lastTime = now;
 
   const firing = mouseDown && pointerLocked && form === 'human';
-  updateMovement(dt, firing);
+  // メイン射撃中(firing)、またはサブ・スペシャルの構えモーション中に相当する
+  // Eキー長押し(throwAimHeld)のいずれかがtrueなら加速度が2倍になる状態。
+  const actionState = firing || throwAimHeld;
+  updateMovement(dt, firing, actionState);
   updateWeapon(dt);
   updateInk(dt, firing);
   updateCamera(dt);
