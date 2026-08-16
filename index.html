@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>インク・ペイントシステム — 3D TPS プロトタイプ (最小構成)</title>
+<style>
+  :root{
+    --bg: #14161c;
+    --panel: #1d2029;
+    --ink: #ff5a1f;
+    --ink-dark: #b5390f;
+    --text: #eef0f4;
+    --muted: #7d8394;
+    --accent: #33e6c0;
+  }
+  html,body{
+    margin:0; height:100%; overflow:hidden;
+    background: var(--bg); color: var(--text);
+    font-family: "Helvetica Neue", "Hiragino Sans", "Yu Gothic", sans-serif;
+  }
+  #app{ position:relative; width:100vw; height:100vh; }
+  canvas{ display:block; }
+
+  #hud{
+    position:absolute; top:12px; left:12px; right:12px;
+    display:flex; justify-content:space-between; align-items:flex-start;
+    pointer-events:none; font-variant-numeric: tabular-nums;
+  }
+  .card{
+    background: rgba(13,14,18,.72); backdrop-filter: blur(4px);
+    border: 1px solid #33384a; border-radius:8px; padding:8px 12px;
+  }
+  .label{ font-size:11px; color: var(--muted); letter-spacing:.08em; }
+  #ink-gauge-outer{
+    width:130px; height:8px; border-radius:4px; background:#0b0c10;
+    overflow:hidden; margin-top:6px; border:1px solid #33384a;
+  }
+  #ink-gauge-inner{
+    height:100%; width:100%;
+    background: linear-gradient(90deg, var(--ink-dark), var(--ink));
+    transition: width .08s linear;
+  }
+  #dummy-hp-outer{
+    width:130px; height:6px; border-radius:3px; background:#0b0c10;
+    overflow:hidden; margin-top:4px; border:1px solid #33384a;
+  }
+  #dummy-hp-inner{
+    height:100%; width:100%;
+    background: var(--accent);
+    transition: width .08s linear;
+  }
+
+  #crosshair{
+    position:absolute; top:50%; left:50%; width:6px; height:6px;
+    margin:-3px 0 0 -3px; border-radius:50%;
+    background: rgba(255,255,255,.85);
+    box-shadow: 0 0 0 1px rgba(0,0,0,.4);
+    pointer-events:none;
+  }
+
+  #pointerlock-prompt{
+    position:absolute; left:50%; bottom:18px; transform:translateX(-50%);
+    background: rgba(13,14,18,.85); backdrop-filter: blur(4px);
+    border: 1px solid #33384a; border-radius:8px;
+    padding:9px 16px; text-align:center; cursor:pointer;
+    font-size:12px; color: var(--muted); line-height:1.5;
+    z-index:40; max-width:360px;
+  }
+  #pointerlock-prompt b{ color: var(--text); }
+  #pointerlock-prompt.hidden{ display:none; }
+
+  #scope-note{
+    position:absolute; bottom:12px; left:12px; max-width:280px;
+    font-size:10px; color: var(--muted); line-height:1.6;
+    background: rgba(13,14,18,.6); border:1px solid #262a36;
+    border-radius:6px; padding:6px 9px; pointer-events:none;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="hud">
+    <div class="card">
+      <div class="label">インク残量</div>
+      <div id="ink-gauge-outer"><div id="ink-gauge-inner"></div></div>
+    </div>
+    <div class="card" style="text-align:right">
+      <div class="label">ダミーHP</div>
+      <div id="dummy-hp-outer"><div id="dummy-hp-inner"></div></div>
+      <div id="kill-count" class="label" style="margin-top:6px;">撃破数: 0</div>
+    </div>
+  </div>
+  <div id="crosshair"></div>
+  <div id="scope-note">最小プロトタイプ: 移動・TPS視点・スプラシューター1丁の発射のみ実装。<br>塗り判定/複数武器/スペシャルは未実装(次フェーズ)。</div>
+  <div id="pointerlock-prompt"><b>クリックしてマウスルックを有効化</b><br>WASD移動／マウスで視点／左クリックで発射</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ==========================================================================
+   3D TPS PROTOTYPE — scope for this milestone
+   --------------------------------------------------------------------------
+   Ported from the 2D top-down ink prototype. This step ONLY covers:
+     - third-person camera (mouse look via pointer lock, orbiting behind
+       the player at a fixed offset)
+     - WASD movement relative to camera facing
+     - a single weapon (スプラシューター) firing on left-click hold, with
+       the same fire-interval / ink-cost / range figures as the 2D version
+     - a practice dummy target with HP/respawn, so the feel of the weapon
+       can be judged directly
+
+   NOT yet ported (left for a later pass, once this movement/camera/weapon
+   core feels right):
+     - the ink coverage system (paint layer, turf-score points, swim-speed
+       boost on own ink) — impacts are shown with a simple flat decal only,
+       for visual feedback, not tracked as coverage
+     - the other two weapons, sub weapon, both specials
+     - walls/obstacles, HUD overlays (pause/menu/customize)
+   ========================================================================== */
+
+// --------------------------------------------------------------------------
+// Unit system: reuse the 2D prototype's line/meter convention so weapon
+// numbers stay comparable. 1 line = 5m. Real-world Three.js units below are
+// meters (1 unit = 1m).
+// --------------------------------------------------------------------------
+const METERS_PER_LINE = 5;
+const DU_PER_METER = 10;
+const FPS = 60;
+function duPerFrameToMPerSec(v){ return (v / DU_PER_METER) * FPS; }
+function framesToSeconds(f){ return f / FPS; }
+function linesToMeters(n){ return n * METERS_PER_LINE; }
+
+// スプラシューター — same figures as the 2D prototype (see
+// ink-paint-prototype.html WEAPONS[0] for the annotated source/derivation).
+const WEAPON = {
+  name: 'スプラシューター',
+  maxRangeLines: 2.7,
+  fireIntervalSec: framesToSeconds(6),
+  inkPerShot: 100 / 108,
+  speedDU: 22.66,
+  damageFalloff: { startFrame: 8, startDamage: 36.0, endFrame: 40, endDamage: 18.0, perFrameDecay: 0.5625 },
+  spreadDeg: 4.86,
+};
+
+const player = {
+  ink: 100, maxInk: 100,
+  regenRate: 10, // ink/sec, natural regen only (matches ヒト状態 in the 2D version)
+  walkSpeed: 4.4,   // m/s, approximate stand-in for the 2D prototype's ヒト速 (full weight-class table not ported yet)
+  shootSpeed: 2.6,  // m/s while firing (シューター種は射撃中に減速する仕様を反映)
+};
+
+// ==========================================================================
+// Scene setup
+// ==========================================================================
+const app = document.getElementById('app');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x14161c);
+scene.fog = new THREE.Fog(0x14161c, 40, 90);
+
+const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 500);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+app.appendChild(renderer.domElement);
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// Lighting
+scene.add(new THREE.AmbientLight(0x8890a8, 0.7));
+const sun = new THREE.DirectionalLight(0xfff2d8, 1.1);
+sun.position.set(30, 50, 20);
+sun.castShadow = true;
+sun.shadow.camera.left = -60; sun.shadow.camera.right = 60;
+sun.shadow.camera.top = 60; sun.shadow.camera.bottom = -60;
+sun.shadow.mapSize.set(2048, 2048);
+scene.add(sun);
+
+// Ground — a practice-range floor with a faint line grid, matching the
+// 1-line(5m) spacing used in the 2D version's markers.
+const ARENA_SIZE = linesToMeters(20); // 100m square, same order of size as the 2D canvas arena
+const groundGeo = new THREE.PlaneGeometry(ARENA_SIZE, ARENA_SIZE);
+const groundMat = new THREE.MeshStandardMaterial({ color: 0x2a2d38, roughness: 0.95 });
+const ground = new THREE.Mesh(groundGeo, groundMat);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+const grid = new THREE.GridHelper(ARENA_SIZE, ARENA_SIZE / METERS_PER_LINE, 0x46dc8c, 0x555b6e);
+grid.position.y = 0.01;
+grid.material.opacity = 0.35;
+grid.material.transparent = true;
+scene.add(grid);
+
+// Boundary walls (simple visual + collision box) so the player can't walk
+// off the practice range.
+const WALL_HALF = ARENA_SIZE / 2;
+function clampToArena(x, z, margin){
+  return {
+    x: Math.max(-WALL_HALF + margin, Math.min(WALL_HALF - margin, x)),
+    z: Math.max(-WALL_HALF + margin, Math.min(WALL_HALF - margin, z)),
+  };
+}
+
+// --------------------------------------------------------------------------
+// Player character — a simple squid-adjacent capsule stand-in (a capsule
+// body + a small "beak" cone so facing direction reads at a glance from
+// behind, matching the TPS camera's viewpoint). Full squid/human form
+// switching is not ported yet — this is the ヒト状態 model only.
+// --------------------------------------------------------------------------
+const TEAM_COLOR = 0xff5a1f;
+const playerGroup = new THREE.Group();
+playerGroup.position.set(0, 0, 12);
+scene.add(playerGroup);
+
+// Three r128 has no CapsuleGeometry (added in r142+), so the body is built
+// from a cylinder trunk with a sphere cap on top instead.
+const bodyMat = new THREE.MeshStandardMaterial({ color: TEAM_COLOR, roughness: 0.5, metalness: 0.05 });
+const trunkGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.7, 12);
+const trunkMesh = new THREE.Mesh(trunkGeo, bodyMat);
+trunkMesh.position.y = 0.77;
+trunkMesh.castShadow = true;
+playerGroup.add(trunkMesh);
+
+const capGeo = new THREE.SphereGeometry(0.42, 12, 10);
+const capMesh = new THREE.Mesh(capGeo, bodyMat);
+capMesh.position.y = 1.12;
+capMesh.castShadow = true;
+playerGroup.add(capMesh);
+
+const beakGeo = new THREE.ConeGeometry(0.14, 0.4, 10);
+const beakMesh = new THREE.Mesh(beakGeo, new THREE.MeshStandardMaterial({ color: 0xffe08a }));
+beakMesh.rotation.x = Math.PI / 2;
+beakMesh.position.set(0, 0.85, 0.5);
+beakMesh.castShadow = true;
+playerGroup.add(beakMesh);
+
+const PLAYER_RADIUS = 0.45;
+const MUZZLE_HEIGHT = 0.95; // where shots originate, roughly shoulder height
+
+// --------------------------------------------------------------------------
+// Practice dummy target
+// --------------------------------------------------------------------------
+const dummy = {
+  hp: 100, maxHp: 100,
+  radius: 0.55,
+  position: new THREE.Vector3(0, 0, -16),
+};
+const dummyMat = new THREE.MeshStandardMaterial({ color: 0x4b5063, roughness: 0.7 });
+const dummyMesh = new THREE.Mesh(new THREE.CylinderGeometry(dummy.radius, dummy.radius, 1.7, 16), dummyMat);
+dummyMesh.position.copy(dummy.position).setY(0.85);
+dummyMesh.castShadow = true;
+scene.add(dummyMesh);
+let killCount = 0;
+
+function respawnDummy(){
+  dummy.hp = dummy.maxHp;
+  updateDummyHpUI();
+}
+function updateDummyHpUI(){
+  document.getElementById('dummy-hp-inner').style.width = (dummy.hp / dummy.maxHp * 100) + '%';
+}
+
+// ==========================================================================
+// TPS camera + mouse look
+// --------------------------------------------------------------------------
+// yaw/pitch drive both the camera orbit and the player's facing direction
+// (movement and shots go where the camera looks, same as the 2D
+// prototype's mouse-look-driven aimAngle). Camera sits behind/above the
+// player at a fixed offset and looks at a point slightly above the
+// player's head.
+// ==========================================================================
+let yaw = Math.PI;   // facing -Z initially (toward the dummy)
+let pitch = -0.18;   // slight downward tilt
+const PITCH_MIN = -1.1, PITCH_MAX = 0.55;
+const MOUSE_SENSITIVITY = 0.0022;
+const CAMERA_DISTANCE = 6.2;
+const CAMERA_HEIGHT = 2.4;
+
+let pointerLocked = false;
+document.getElementById('pointerlock-prompt').addEventListener('click', () => {
+  renderer.domElement.requestPointerLock();
+});
+document.addEventListener('pointerlockchange', () => {
+  pointerLocked = document.pointerLockElement === renderer.domElement;
+  document.getElementById('pointerlock-prompt').classList.toggle('hidden', pointerLocked);
+});
+document.addEventListener('mousemove', e => {
+  if (!pointerLocked) return;
+  yaw -= e.movementX * MOUSE_SENSITIVITY;
+  pitch -= e.movementY * MOUSE_SENSITIVITY;
+  pitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, pitch));
+});
+
+function updateCamera(){
+  playerGroup.rotation.y = yaw;
+
+  const camOffset = new THREE.Vector3(
+    Math.sin(yaw) * -CAMERA_DISTANCE * Math.cos(pitch * 0.4),
+    CAMERA_HEIGHT + Math.sin(-pitch) * 2.2,
+    Math.cos(yaw) * -CAMERA_DISTANCE * Math.cos(pitch * 0.4)
+  );
+  const desiredPos = playerGroup.position.clone().add(camOffset);
+
+  // Simple raycast-free ground clamp so the camera never dips below floor.
+  desiredPos.y = Math.max(desiredPos.y, 0.6);
+  camera.position.lerp(desiredPos, 1); // no smoothing needed at fixed offset; kept as a lerp for easy tuning later
+
+  const lookTarget = playerGroup.position.clone().add(new THREE.Vector3(0, 1.1, 0));
+  camera.lookAt(lookTarget);
+}
+
+// ==========================================================================
+// Movement (WASD, relative to camera/player yaw — matches the 2D
+// prototype's "aim direction independent of strafe direction" feel, since
+// yaw here doubles as both facing and camera direction).
+// ==========================================================================
+const keys = { w:false, a:false, s:false, d:false };
+window.addEventListener('keydown', e => { const k = e.key.toLowerCase(); if (k in keys) keys[k] = true; });
+window.addEventListener('keyup', e => { const k = e.key.toLowerCase(); if (k in keys) keys[k] = false; });
+
+let mouseDown = false;
+renderer.domElement.addEventListener('mousedown', e => {
+  if (!pointerLocked){ renderer.domElement.requestPointerLock(); return; }
+  if (e.button === 0) mouseDown = true;
+});
+window.addEventListener('mouseup', e => { if (e.button === 0) mouseDown = false; });
+
+function updateMovement(dt, firing){
+  let moveX = 0, moveZ = 0;
+  if (keys.w) moveZ -= 1;
+  if (keys.s) moveZ += 1;
+  if (keys.a) moveX -= 1;
+  if (keys.d) moveX += 1;
+  if (!moveX && !moveZ) return;
+
+  const len = Math.hypot(moveX, moveZ);
+  moveX /= len; moveZ /= len;
+
+  // Rotate the WASD vector by the camera yaw so 'W' always means "the way
+  // the camera/player is facing", same convention as the 2D prototype.
+  const sinY = Math.sin(yaw), cosY = Math.cos(yaw);
+  const worldX = moveX * cosY + moveZ * sinY;
+  const worldZ = -moveX * sinY + moveZ * cosY;
+
+  const speed = firing ? player.shootSpeed : player.walkSpeed;
+  const nx = playerGroup.position.x + worldX * speed * dt;
+  const nz = playerGroup.position.z + worldZ * speed * dt;
+  const clamped = clampToArena(nx, nz, PLAYER_RADIUS);
+  playerGroup.position.x = clamped.x;
+  playerGroup.position.z = clamped.z;
+}
+
+// ==========================================================================
+// Weapon: single-shot spawn, straight-line travel, dummy/range/bounds hit
+// check. No falloff-based splat/paint yet — impacts leave a flat decal
+// purely for visual feedback (not scored, not sampled for anything).
+// ==========================================================================
+const projectiles = [];
+const projGeo = new THREE.SphereGeometry(0.05, 8, 8);
+const projMat = new THREE.MeshBasicMaterial({ color: 0xffd8c2 });
+
+const decalGeo = new THREE.CircleGeometry(0.35, 16);
+const decalMat = new THREE.MeshBasicMaterial({ color: TEAM_COLOR, transparent: true, opacity: 0.85 });
+const decals = [];
+
+let lastShotAt = 0;
+
+function fireShot(){
+  if (player.ink < WEAPON.inkPerShot) return;
+  player.ink -= WEAPON.inkPerShot;
+
+  const spread = (Math.random() - 0.5) * WEAPON.spreadDeg * Math.PI / 180;
+  const angle = yaw + spread;
+  const dir = new THREE.Vector3(Math.sin(angle) * -1, 0, Math.cos(angle) * -1).normalize();
+  // Slight upward tilt following the camera pitch so shots read as aimed
+  // where you're looking, not always level.
+  dir.y = Math.sin(pitch) * 0.4;
+  dir.normalize();
+
+  const origin = playerGroup.position.clone().add(new THREE.Vector3(0, MUZZLE_HEIGHT, 0));
+  const mesh = new THREE.Mesh(projGeo, projMat);
+  mesh.position.copy(origin);
+  scene.add(mesh);
+
+  projectiles.push({
+    mesh,
+    pos: origin.clone(),
+    dir,
+    speed: duPerFrameToMPerSec(WEAPON.speedDU),
+    traveled: 0,
+    range: linesToMeters(WEAPON.maxRangeLines),
+    frameCount: 0,
+    alive: true,
+  });
+}
+
+function spawnDecal(pos){
+  const mesh = new THREE.Mesh(decalGeo, decalMat.clone());
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.set(pos.x, 0.02, pos.z);
+  scene.add(mesh);
+  decals.push({ mesh, bornAt: performance.now() });
+  // Cap decal count so the scene doesn't grow forever in this prototype.
+  if (decals.length > 120){
+    const old = decals.shift();
+    scene.remove(old.mesh);
+  }
+}
+
+function getShotDamage(frameNumber){
+  const f = WEAPON.damageFalloff;
+  if (frameNumber <= f.startFrame) return f.startDamage;
+  if (frameNumber >= f.endFrame) return f.endDamage;
+  const raw = f.startDamage - f.perFrameDecay * (frameNumber - f.startFrame);
+  return Math.floor(raw * 10) / 10;
+}
+
+function updateProjectiles(dt){
+  for (const p of projectiles){
+    if (!p.alive) continue;
+    p.frameCount++;
+    const step = p.dir.clone().multiplyScalar(p.speed * dt);
+    const next = p.pos.clone().add(step);
+    p.traveled += step.length();
+
+    const hitDummy = dummy.hp > 0 && next.distanceTo(new THREE.Vector3(dummy.position.x, next.y, dummy.position.z)) < dummy.radius + 0.06
+      && next.y < 1.8 && next.y > 0;
+    const outOfRange = p.traveled >= p.range;
+    const outOfBounds = Math.abs(next.x) > WALL_HALF || Math.abs(next.z) > WALL_HALF || next.y < 0 || next.y > 8;
+
+    if (hitDummy){
+      const dmg = getShotDamage(p.frameCount);
+      dummy.hp = Math.max(0, dummy.hp - dmg);
+      updateDummyHpUI();
+      if (dummy.hp === 0){
+        killCount++;
+        document.getElementById('kill-count').textContent = `撃破数: ${killCount}`;
+        setTimeout(respawnDummy, 500);
+      }
+      spawnDecal(next);
+      scene.remove(p.mesh);
+      p.alive = false;
+    } else if (outOfRange || outOfBounds){
+      spawnDecal(next);
+      scene.remove(p.mesh);
+      p.alive = false;
+    } else {
+      p.pos.copy(next);
+      p.mesh.position.copy(next);
+    }
+  }
+  for (let i = projectiles.length - 1; i >= 0; i--){
+    if (!projectiles[i].alive) projectiles.splice(i, 1);
+  }
+}
+
+function updateWeapon(dt){
+  const now = performance.now();
+  if (mouseDown && pointerLocked && now - lastShotAt >= WEAPON.fireIntervalSec * 1000){
+    lastShotAt = now;
+    fireShot();
+  }
+  updateProjectiles(dt);
+}
+
+function updateInk(dt, firing){
+  // インク回復不能時間は今回は簡略化し、発射していない間は常に自然回復する。
+  if (!firing){
+    player.ink = Math.min(player.maxInk, player.ink + player.regenRate * dt);
+  }
+  document.getElementById('ink-gauge-inner').style.width = (player.ink / player.maxInk * 100) + '%';
+}
+
+// ==========================================================================
+// Main loop
+// ==========================================================================
+updateDummyHpUI();
+let lastTime = performance.now();
+function loop(now){
+  const dt = Math.min((now - lastTime) / 1000, 0.05);
+  lastTime = now;
+
+  const firing = mouseDown && pointerLocked;
+  updateMovement(dt, firing);
+  updateWeapon(dt);
+  updateInk(dt, firing);
+  updateCamera();
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
