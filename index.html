@@ -227,7 +227,57 @@ const WEAPON = {
   speedDU: 22.66,
   damageFalloff: { startFrame: 8, startDamage: 36.0, endFrame: 40, endDamage: 18.0, perFrameDecay: 0.5625 },
   spreadDeg: 4.86,
+
+  // ========================================================================
+  // 弾道パラメータ (A)~(H) — ①直進状態 → ②減速状態 → ③自由落下状態、の
+  // 3段階遷移モデル(ユーザー提供の仕様に準拠)。
+  //   (A)初速 / (B)直進フレーム数 / (C)直進終了時最大速度 /
+  //   (D)減速時の空気抵抗 / (E)減速時の重力 / (F)減速状態の下限速度(XZ・Y別) /
+  //   (G)自由落下時の空気抵抗 / (H)自由落下時の重力
+  //
+  // 数値の出典について:
+  //   (A)はダメージ計算などで既に使っているspeedDUと同じ値(実測に基づく確定値)。
+  //   (H)と(G)は、スプラトゥーン3攻略Wikiの「システム詳細仕様」ページにある
+  //   「(自由落下時の重力は)シューター種では全て0.016に設定されている」
+  //   「(自由落下時の空気抵抗は)シューター種ではなぜか.52ガロンにのみ
+  //   パラメータが存在し0.02となっている(=他シューターは0)」という記述に
+  //   基づく、シューター種共通の確定(に近い)値。
+  //   (B)(C)(D)(E)(F)はスプラシューター個別の実測データが見つからなかった
+  //   ため、【要検証】の暫定値。同Wikiの定性的な記述
+  //   (「シューター種は(A)に対して(C)が総じて小さく、ブレーキ状態になると
+  //   極端に減速する」「実測ではシューター系の弾はブレーキ開始から4F程度で
+  //   自由落下状態に移行しているように見える」)から、それらしい挙動になる
+  //   よう仮に置いた値。正確な数値が判明次第ここだけ差し替えれば良いように、
+  //   他のロジックとは独立させてある。
+  // ========================================================================
+  ballistics: {
+    A_initialSpeedDU: 22.66,     // 確定値(=speedDUと同じ)
+    B_straightFrames: 8,         // 【要検証・暫定】
+    C_brakeMaxSpeedDU: 5.5,      // 【要検証・暫定】(A)よりかなり小さい値にしてある
+    D_brakeDrag: 0.35,           // 【要検証・暫定】1Fごとに(1-D)倍
+    E_brakeGravityDU: 0.05,      // 【要検証・暫定】DU/F²相当(Y速度から毎F減算)
+    F_floorSpeedDU: { xz: 0.3, y: 0.3 }, // 【要検証・暫定】これを共に下回ると自由落下へ
+    G_freefallDragDU: 0,         // シューター種共通の確定値(.52ガロン以外は0)
+    H_freefallGravityDU: 0.016,  // シューター種共通の確定値(DU/F²相当)
+  },
 };
+
+// (B)(C)(D)(E)(F)(G)(H) をm/s・m/s²系へ変換した実働定数。DU/F系の生値は
+// WEAPON.ballistics側にコメント付きで残し、ここではシミュレーションで直接
+// 使う形に変換したものだけをまとめておく。
+const BALLISTICS_MPS = (() => {
+  const b = WEAPON.ballistics;
+  return {
+    straightFrames: b.B_straightFrames,
+    brakeMaxSpeed: duPerFrameToMPerSec(b.C_brakeMaxSpeedDU),
+    brakeDrag: b.D_brakeDrag,               // 無次元(1Fあたりの減衰率)なのでそのまま
+    brakeGravity: duPerF2ToMPerS2(b.E_brakeGravityDU),
+    floorSpeedXZ: duPerFrameToMPerSec(b.F_floorSpeedDU.xz),
+    floorSpeedY: duPerFrameToMPerSec(b.F_floorSpeedDU.y),
+    freefallDrag: b.G_freefallDragDU,       // 無次元
+    freefallGravity: duPerF2ToMPerS2(b.H_freefallGravityDU),
+  };
+})();
 
 // 「レティクル反応射程」— 実際の弾の飛距離/ダメージ射程(maxRangeLines)とは
 // 別の概念。照準を合わせた際に対象レティクル(オレンジの◯/◯+×)が
@@ -426,8 +476,49 @@ const inkTank = createInkTank();
 inkTank.group.visible = false;
 scene.add(inkTank.group);
 
-const PLAYER_RADIUS = 0.45;
+const PLAYER_RADIUS = 0.45; // 移動時の壁クランプ用の簡易半径(下記の当たり判定カプセルとは別物)
 const MUZZLE_HEIGHT = 0.95; // where shots originate, roughly shoulder height
+
+// ==========================================================================
+// 当たり判定(ヒト状態カプセル／イカ状態球) — ユーザー提供の実測値。
+//   ヒト状態: 縦1.65m×横0.7m(直径)のカプセル型 → 半径0.35m、
+//             カプセル全体の高さ1.65m(上下の半球キャップを含む)。
+//   イカ状態: 直径1.6mの球体 → 半径0.8m。
+// 現時点でプレイヤー自身を狙う敵はいないため、この判定はまず「練習用
+// ダミー(人型)」の被弾判定に使う。将来、敵プレイヤーやCPUが実装された
+// 際にも同じ関数(capsuleHitTest/sphereHitTest)を再利用できるよう、
+// 汎用のユーティリティ関数として用意しておく。
+// ==========================================================================
+const HUMAN_HITBOX = { totalHeight: 1.65, radius: 0.35 };
+const SQUID_HITBOX = { radius: 0.8, centerHeight: 0.4 }; // 球の中心の地面からの高さ(イカ状態モデルの重心付近)
+
+// 点pointが、baseY(地面基準の底面高さ)に立つ縦向きカプセル(中心軸は
+// (cx, cz)を通るY軸方向の線分)の内部にあるかどうかを判定する。
+// extraRadiusは弾自体の大きさなどをカプセル側に加算するための余白。
+function capsuleHitTest(point, cx, cz, baseY, hitbox, extraRadius){
+  extraRadius = extraRadius || 0;
+  const r = hitbox.radius;
+  // カプセルの中心線分(直径分の半球キャップを除いた円柱部分)の上下端。
+  const segBottom = baseY + r;
+  const segTop = baseY + hitbox.totalHeight - r;
+  const clampedY = Math.max(segBottom, Math.min(segTop, point.y));
+  const dx = point.x - cx;
+  const dz = point.z - cz;
+  const dy = point.y - clampedY;
+  const rr = r + extraRadius;
+  return (dx * dx + dy * dy + dz * dz) <= rr * rr;
+}
+
+// 点pointが、baseY(地面基準)に立つイカ状態の球(中心はbaseY+centerHeight)の
+// 内部にあるかどうかを判定する。
+function sphereHitTest(point, cx, cz, baseY, hitbox, extraRadius){
+  extraRadius = extraRadius || 0;
+  const dx = point.x - cx;
+  const dy = point.y - (baseY + hitbox.centerHeight);
+  const dz = point.z - cz;
+  const rr = hitbox.radius + extraRadius;
+  return (dx * dx + dy * dy + dz * dz) <= rr * rr;
+}
 
 // --------------------------------------------------------------------------
 // "自陣インク上か" — approximated by checking whether the player is
@@ -471,14 +562,17 @@ function updatePlayerVisual(){
 // --------------------------------------------------------------------------
 // Practice dummy target
 // --------------------------------------------------------------------------
+// ダミーは人型(ヒト状態)を想定するため、見た目のサイズをHUMAN_HITBOXの
+// 実測カプセル寸法(直径0.7m×高さ1.65m)に合わせてある。これにより
+// 「見た目」と「実際の当たり判定(下記capsuleHitTest)」が一致する。
 const dummy = {
   hp: 100, maxHp: 100,
-  radius: 0.55,
+  radius: HUMAN_HITBOX.radius,
   position: new THREE.Vector3(0, 0, -16),
 };
 const dummyMat = new THREE.MeshStandardMaterial({ color: 0x4b5063, roughness: 0.7 });
-const dummyMesh = new THREE.Mesh(new THREE.CylinderGeometry(dummy.radius, dummy.radius, 1.7, 16), dummyMat);
-dummyMesh.position.copy(dummy.position).setY(0.85);
+const dummyMesh = new THREE.Mesh(new THREE.CylinderGeometry(dummy.radius, dummy.radius, HUMAN_HITBOX.totalHeight, 16), dummyMat);
+dummyMesh.position.copy(dummy.position).setY(HUMAN_HITBOX.totalHeight / 2);
 dummyMesh.castShadow = true;
 dummyMesh.userData.isEnemy = true; // 対象レティクルで◯+×(敵扱い)にするための目印
 scene.add(dummyMesh);
@@ -939,11 +1033,17 @@ function fireShot(){
   mesh.position.copy(origin);
   scene.add(mesh);
 
+  // (A)初速の方向・大きさで初期速度ベクトルを作る。直進状態は重力・空気抵抗の
+  // 影響を受けないため、この速度ベクトルは①直進状態の間ずっと一定のまま。
+  const b = WEAPON.ballistics;
+  const initialSpeed = duPerFrameToMPerSec(b.A_initialSpeedDU);
+  const vel = dir.clone().multiplyScalar(initialSpeed);
+
   projectiles.push({
     mesh,
     pos: origin.clone(),
-    dir,
-    speed: duPerFrameToMPerSec(WEAPON.speedDU),
+    vel,                 // 現在の速度ベクトル(m/s)。フェーズに応じて毎F変化する。
+    phase: 'straight',   // 'straight' → 'brake' → 'freefall'
     traveled: 0,
     range: linesToMeters(WEAPON.maxRangeLines),
     frameCount: 0,
@@ -972,38 +1072,110 @@ function getShotDamage(frameNumber){
   return Math.floor(raw * 10) / 10;
 }
 
+// 弾1発分、1フレーム(概念上)ぶんの速度ベクトルをフェーズに応じて更新する。
+// dtが1/60秒ちょうどでない場合(可変フレームレート)は、フレーム相当数
+// framesEquivだけこのステップを繰り返し適用することで、"1Fおきに"という
+// 仕様の意味合い(離散フレーム更新)をできるだけ保つ。
+function advanceProjectileVelocityOneFrame(p){
+  const bm = BALLISTICS_MPS;
+  if (p.phase === 'straight'){
+    // (A)は重力・空気抵抗の影響を受けず一定。frameCountがBに達したら
+    // 減速状態へ遷移する(遷移時、速度が(C)より速ければ(C)まで落とす)。
+    if (p.frameCount >= bm.straightFrames){
+      p.phase = 'brake';
+      const speed = p.vel.length();
+      if (speed > bm.brakeMaxSpeed && speed > 0){
+        p.vel.multiplyScalar(bm.brakeMaxSpeed / speed);
+      }
+      // 「ブレーキ状態になった1F目から割合減速が適用される」ため、
+      // このフレーム内でそのまま減速状態の処理へフォールスルーする。
+    } else {
+      return; // 直進中は速度ベクトルを変化させない
+    }
+  }
+
+  if (p.phase === 'brake'){
+    // 1F前の速度に(1-D)を乗算し、その後Y速度から(E)を減算する。
+    p.vel.multiplyScalar(1 - bm.brakeDrag);
+    p.vel.y -= bm.brakeGravity / FPS; // brakeGravityはm/s²なので1F分(1/FPS秒分)だけ適用
+
+    // 下限速度(F)判定: XZ速度・Y速度がそれぞれの下限を下回った場合、
+    // その軸は下限値まで引き上げる(向きは保ったまま)。
+    const xzSpeed = Math.hypot(p.vel.x, p.vel.z);
+    let xzBelowFloor = false, yBelowFloor = false;
+    if (xzSpeed < bm.floorSpeedXZ){
+      xzBelowFloor = true;
+      if (xzSpeed > 1e-6){
+        const scale = bm.floorSpeedXZ / xzSpeed;
+        p.vel.x *= scale; p.vel.z *= scale;
+      }
+    }
+    if (Math.abs(p.vel.y) < bm.floorSpeedY){
+      yBelowFloor = true;
+      p.vel.y = p.vel.y >= 0 ? bm.floorSpeedY : -bm.floorSpeedY;
+    }
+    // 両方が下限を下回っていたら自由落下状態へ移行。
+    if (xzBelowFloor && yBelowFloor) p.phase = 'freefall';
+    return;
+  }
+
+  if (p.phase === 'freefall'){
+    // 空気抵抗(G)と重力(H)以外は減速状態と全く同じ計算式。
+    p.vel.multiplyScalar(1 - bm.freefallDrag);
+    p.vel.y -= bm.freefallGravity / FPS;
+  }
+}
+
 function updateProjectiles(dt){
   for (const p of projectiles){
     if (!p.alive) continue;
-    p.frameCount++;
-    const step = p.dir.clone().multiplyScalar(p.speed * dt);
-    const next = p.pos.clone().add(step);
-    p.traveled += step.length();
 
-    const hitDummy = dummy.hp > 0 && next.distanceTo(new THREE.Vector3(dummy.position.x, next.y, dummy.position.z)) < dummy.radius + 0.06
-      && next.y < 1.8 && next.y > 0;
-    const outOfRange = p.traveled >= p.range;
-    const outOfBounds = Math.abs(next.x) > WALL_HALF || Math.abs(next.z) > WALL_HALF || next.y < 0 || next.y > 8;
+    // 可変dtをFPS基準の「フレーム」単位に分解して、直進フレーム数(B)の
+    // カウントや、1Fごとの割合減速が仕様通りの粒度で効くようにする。
+    let remaining = dt;
+    const frameDt = 1 / FPS;
+    while (remaining > 0 && p.alive){
+      const step = Math.min(remaining, frameDt);
+      const isFrameBoundary = step >= frameDt - 1e-9;
 
-    if (hitDummy){
-      const dmg = getShotDamage(p.frameCount);
-      dummy.hp = Math.max(0, dummy.hp - dmg);
-      updateDummyHpUI();
-      if (dummy.hp === 0){
-        killCount++;
-        document.getElementById('kill-count').textContent = `撃破数: ${killCount}`;
-        setTimeout(respawnDummy, 500);
+      const moveVec = p.vel.clone().multiplyScalar(step);
+      const next = p.pos.clone().add(moveVec);
+      p.traveled += moveVec.length();
+
+      // ヒト状態の当たり判定カプセル(直径0.7m×高さ1.65m)で練習用ダミーへの
+      // ヒットを判定する。以前の単純な円距離判定より正確(縦方向の判定も
+      // カプセル形状に基づく)。
+      const hitDummy = dummy.hp > 0 && capsuleHitTest(
+        next, dummy.position.x, dummy.position.z, 0, HUMAN_HITBOX, 0.05 /* 弾自体の半径ぶんの余白 */
+      );
+      const outOfRange = p.traveled >= p.range;
+      const outOfBounds = Math.abs(next.x) > WALL_HALF || Math.abs(next.z) > WALL_HALF || next.y < 0 || next.y > 8;
+
+      if (hitDummy){
+        const dmg = getShotDamage(p.frameCount);
+        dummy.hp = Math.max(0, dummy.hp - dmg);
+        updateDummyHpUI();
+        if (dummy.hp === 0){
+          killCount++;
+          document.getElementById('kill-count').textContent = `撃破数: ${killCount}`;
+          setTimeout(respawnDummy, 500);
+        }
+        spawnDecal(next);
+        scene.remove(p.mesh);
+        p.alive = false;
+      } else if (outOfRange || outOfBounds){
+        spawnDecal(next);
+        scene.remove(p.mesh);
+        p.alive = false;
+      } else {
+        p.pos.copy(next);
+        p.mesh.position.copy(next);
+        if (isFrameBoundary){
+          p.frameCount++;
+          advanceProjectileVelocityOneFrame(p);
+        }
       }
-      spawnDecal(next);
-      scene.remove(p.mesh);
-      p.alive = false;
-    } else if (outOfRange || outOfBounds){
-      spawnDecal(next);
-      scene.remove(p.mesh);
-      p.alive = false;
-    } else {
-      p.pos.copy(next);
-      p.mesh.position.copy(next);
+      remaining -= step;
     }
   }
   for (let i = projectiles.length - 1; i >= 0; i--){
