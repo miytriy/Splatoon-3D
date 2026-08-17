@@ -76,8 +76,34 @@
     box-shadow: 0 0 0 1px rgba(0,0,0,.4);
     transform:translate(-50%,-50%);
   }
-  .reticle-line.vertical{ width:2px; height:14px; }
-  .reticle-line.horizontal{ width:14px; height:2px; }
+  .reticle-line.diagonal{ width:2px; height:13px; }
+
+  /* レティクル反応射程内で壁・床・対象に実際に弾が当たる位置へ出す
+     ターゲットレティクル。中央固定の追尾レティクル(#reticle)とは別物で、
+     ワールド上の着弾候補点を毎フレーム画面座標へ投影して配置する。 */
+  #target-reticle{
+    position:absolute; top:0; left:0; width:0; height:0;
+    pointer-events:none; display:none;
+  }
+  .target-ring{
+    position:absolute; top:0; left:0; width:26px; height:26px;
+    transform:translate(-50%,-50%);
+    border-radius:50%;
+    border:2px solid #ff9a1f;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.45), 0 0 6px rgba(255,120,20,.6);
+  }
+  .target-x{
+    position:absolute; top:0; left:0; width:26px; height:26px;
+    transform:translate(-50%,-50%);
+    display:none;
+  }
+  .target-x span{
+    position:absolute; top:50%; left:50%; width:17px; height:2px;
+    background:#ff9a1f; box-shadow:0 0 0 1px rgba(0,0,0,.45);
+    transform-origin:center;
+  }
+  .target-x span:first-child{ transform:translate(-50%,-50%) rotate(45deg); }
+  .target-x span:last-child{ transform:translate(-50%,-50%) rotate(-45deg); }
 
   #pointerlock-prompt{
     position:absolute; left:50%; bottom:18px; transform:translateX(-50%);
@@ -114,10 +140,14 @@
   <div id="reticle">
     <div class="reticle-ring"></div>
     <div class="reticle-dot"></div>
-    <div id="reticle-line-top" class="reticle-line vertical"></div>
-    <div id="reticle-line-bottom" class="reticle-line vertical"></div>
-    <div id="reticle-line-left" class="reticle-line horizontal"></div>
-    <div id="reticle-line-right" class="reticle-line horizontal"></div>
+    <div id="reticle-line-ne" class="reticle-line diagonal"></div>
+    <div id="reticle-line-nw" class="reticle-line diagonal"></div>
+    <div id="reticle-line-se" class="reticle-line diagonal"></div>
+    <div id="reticle-line-sw" class="reticle-line diagonal"></div>
+  </div>
+  <div id="target-reticle">
+    <div class="target-ring"></div>
+    <div class="target-x"><span></span><span></span></div>
   </div>
   <div id="fov-state" class="label" style="position:absolute; top:12px; left:50%; transform:translateX(-50%); background:rgba(13,14,18,.6); padding:4px 10px; border-radius:6px; border:1px solid #262a36;">FOV: 55.0°(ヒト状態)</div>
   <div id="scope-note">最小プロトタイプ: 移動・TPS視点・スプラシューター1丁の発射のみ実装。<br>塗り判定/複数武器/スペシャルは未実装(次フェーズ)。<br>右クリック長押し=イカ状態(自陣インク上なら潜行)／Eキー長押し=投擲構え(FOVのみ、投擲自体は未実装)。</div>
@@ -198,6 +228,13 @@ const WEAPON = {
   damageFalloff: { startFrame: 8, startDamage: 36.0, endFrame: 40, endDamage: 18.0, perFrameDecay: 0.5625 },
   spreadDeg: 4.86,
 };
+
+// 「レティクル反応射程」— 実際の弾の飛距離/ダメージ射程(maxRangeLines)とは
+// 別の概念。照準を合わせた際に対象レティクル(オレンジの◯/◯+×)が
+// 表示されるかどうかだけを決める判定距離で、公式の分離データが無いため
+// 現状は暫定的にmaxRangeLinesと同値にしている(将来、実測値が分かれば
+// ここだけ独立して調整する)。
+const RETICLE_RESPONSE_RANGE_LINES = WEAPON.maxRangeLines;
 
 // ==========================================================================
 // 移動速度テーブル (DU/フレーム) — ブキ重量ごとの実データ。
@@ -443,8 +480,14 @@ const dummyMat = new THREE.MeshStandardMaterial({ color: 0x4b5063, roughness: 0.
 const dummyMesh = new THREE.Mesh(new THREE.CylinderGeometry(dummy.radius, dummy.radius, 1.7, 16), dummyMat);
 dummyMesh.position.copy(dummy.position).setY(0.85);
 dummyMesh.castShadow = true;
+dummyMesh.userData.isEnemy = true; // 対象レティクルで◯+×(敵扱い)にするための目印
 scene.add(dummyMesh);
 let killCount = 0;
+
+// 対象レティクル(◯/◯+×)がレイキャストする相手のリスト。壁/什器はまだ
+// 実装されていないため(ファイル冒頭のスコープ注記を参照)、現状は床と
+// 練習用ダミーのみが対象。壁オブジェクトを追加した際はここに足す。
+const reticleRaycastTargets = [ground, dummyMesh];
 
 function respawnDummy(){
   dummy.hp = dummy.maxHp;
@@ -605,10 +648,10 @@ let mouseDown = false;
 // ズームでFOVが狭くなるほど、同じ拡散角でも見た目の広がりは大きくなる
 // (実際の弾のバラつきと視覚上のスケールが一致する)。
 // ==========================================================================
-const reticleTop = document.getElementById('reticle-line-top');
-const reticleBottom = document.getElementById('reticle-line-bottom');
-const reticleLeft = document.getElementById('reticle-line-left');
-const reticleRight = document.getElementById('reticle-line-right');
+const reticleNE = document.getElementById('reticle-line-ne');
+const reticleNW = document.getElementById('reticle-line-nw');
+const reticleSE = document.getElementById('reticle-line-se');
+const reticleSW = document.getElementById('reticle-line-sw');
 const RETICLE_LINE_HALF = 7; // .reticle-line の長辺の半分(px)。中心からの隙間を作らないための詰め代
 const RETICLE_MIN_OFFSET = 9;   // 拡散角が非常に小さくても最低限これだけ中心から離す
 const RETICLE_MAX_OFFSET = 160; // 画面外まで広がらないようにクランプ
@@ -624,14 +667,136 @@ function updateReticle(){
   const rawOffset = (Math.tan(halfSpreadRad) / Math.tan(halfFovRad)) * cy;
   const offset = Math.max(RETICLE_MIN_OFFSET, Math.min(RETICLE_MAX_OFFSET, rawOffset)) + RETICLE_LINE_HALF;
 
-  reticleTop.style.left = cx + 'px';
-  reticleTop.style.top = (cy - offset) + 'px';
-  reticleBottom.style.left = cx + 'px';
-  reticleBottom.style.top = (cy + offset) + 'px';
-  reticleLeft.style.left = (cx - offset) + 'px';
-  reticleLeft.style.top = cy + 'px';
-  reticleRight.style.left = (cx + offset) + 'px';
-  reticleRight.style.top = cy + 'px';
+  // 斜め四隅(NE/NW/SE/SW)に配置。各線は中心への放射方向ではなく、円周に
+  // 沿う接線方向(±45°)に傾け、四隅がブラケットのように見える向きにする。
+  const diag = offset * Math.SQRT1_2;
+  reticleNE.style.left = (cx + diag) + 'px';
+  reticleNE.style.top = (cy - diag) + 'px';
+  reticleNE.style.transform = 'translate(-50%,-50%) rotate(-45deg)';
+
+  reticleNW.style.left = (cx - diag) + 'px';
+  reticleNW.style.top = (cy - diag) + 'px';
+  reticleNW.style.transform = 'translate(-50%,-50%) rotate(45deg)';
+
+  reticleSE.style.left = (cx + diag) + 'px';
+  reticleSE.style.top = (cy + diag) + 'px';
+  reticleSE.style.transform = 'translate(-50%,-50%) rotate(45deg)';
+
+  reticleSW.style.left = (cx - diag) + 'px';
+  reticleSW.style.top = (cy + diag) + 'px';
+  reticleSW.style.transform = 'translate(-50%,-50%) rotate(-45deg)';
+}
+
+// ==========================================================================
+// 対象レティクル(◯ / ◯+×) — レティクル反応射程内で、照準方向のレイが
+// 実際に床・壁・対象にヒットする位置へ出す、追尾レティクルとは別物の表示。
+// ヒットしたのが「敵」扱いのオブジェクト(userData.isEnemy)なら◯の中に
+// ×を追加する。投擲構え中(throwAimHeld)は下のupdateThrowPreview()側の
+// 弾道表示に切り替わるため、こちらは非表示にする。
+// ==========================================================================
+const raycaster = new THREE.Raycaster();
+const targetReticleEl = document.getElementById('target-reticle');
+const targetRingEl = targetReticleEl.querySelector('.target-ring');
+const targetXEl = targetReticleEl.querySelector('.target-x');
+
+function updateTargetReticle(){
+  const showable = form === 'human' && !throwAimHeld && pointerLocked;
+  if (!showable){
+    targetReticleEl.style.display = 'none';
+    return;
+  }
+
+  const dir = getAimDirection();
+  raycaster.set(camera.position, dir);
+  const hits = raycaster.intersectObjects(reticleRaycastTargets, false);
+  const hit = hits.length ? hits[0] : null;
+
+  const maxDist = linesToMeters(RETICLE_RESPONSE_RANGE_LINES);
+  // 反応射程はプレイヤー位置からの距離で判定する(カメラは背後にあるため、
+  // カメラ原点からの距離だとブキの実射程とズレるので補正)。
+  const inRange = hit && hit.point.distanceTo(playerGroup.position) <= maxDist;
+
+  if (!inRange){
+    targetReticleEl.style.display = 'none';
+    return;
+  }
+
+  const ndc = hit.point.clone().project(camera);
+  if (ndc.z > 1){ // カメラの後ろ側に投影された(理論上ここには来ないが念のため)
+    targetReticleEl.style.display = 'none';
+    return;
+  }
+
+  const px = (ndc.x * 0.5 + 0.5) * window.innerWidth;
+  const py = (1 - (ndc.y * 0.5 + 0.5)) * window.innerHeight;
+  targetReticleEl.style.display = 'block';
+  targetRingEl.style.left = px + 'px';
+  targetRingEl.style.top = py + 'px';
+  targetXEl.style.left = px + 'px';
+  targetXEl.style.top = py + 'px';
+  targetXEl.style.display = hit.object.userData.isEnemy ? 'block' : 'none';
+}
+
+// ==========================================================================
+// 投擲プレビュー(弾道+着地点) — Eキー長押し(投擲構え)中、追尾レティクルを
+// 消して代わりに表示する。サブウェポン自体はまだ未実装のため、初速・重力は
+// 実データが無い暫定のプレースホルダー値(コメント参照)。実際のサブウェポンを
+// 実装する際は、この2定数を公式データへ差し替えるだけで済むようにしてある。
+// ==========================================================================
+const THROW_PREVIEW_SPEED_MPS = 13;     // 仮値: 初速(m/s)。公式データ未反映。
+const THROW_PREVIEW_GRAVITY_MPS2 = 18;  // 仮値: 重力加速度(m/s²)。公式データ未反映。
+const THROW_ARC_SEGMENTS = 24;
+
+const throwArcGeo = new THREE.BufferGeometry();
+throwArcGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array((THROW_ARC_SEGMENTS + 1) * 3), 3));
+const throwArcMat = new THREE.LineBasicMaterial({ color: 0xffe14d });
+const throwArcLine = new THREE.Line(throwArcGeo, throwArcMat);
+throwArcLine.visible = false;
+scene.add(throwArcLine);
+
+const throwLandingMat = new THREE.MeshBasicMaterial({ color: 0xffe14d, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
+const throwLandingMesh = new THREE.Mesh(new THREE.RingGeometry(0.18, 0.28, 20), throwLandingMat);
+throwLandingMesh.rotation.x = -Math.PI / 2;
+throwLandingMesh.visible = false;
+scene.add(throwLandingMesh);
+
+function updateThrowPreview(){
+  if (!throwAimHeld){
+    throwArcLine.visible = false;
+    throwLandingMesh.visible = false;
+    return;
+  }
+
+  const origin = playerGroup.position.clone().add(new THREE.Vector3(0, MUZZLE_HEIGHT, 0));
+  const dir = getAimDirection();
+  const vx = dir.x * THROW_PREVIEW_SPEED_MPS;
+  const vy = dir.y * THROW_PREVIEW_SPEED_MPS;
+  const vz = dir.z * THROW_PREVIEW_SPEED_MPS;
+
+  // 放物線 y(t) = originY + vy*t - 0.5*g*t² が地面(y=0)に到達する時刻を解く。
+  const a = -0.5 * THROW_PREVIEW_GRAVITY_MPS2, b = vy, c = origin.y;
+  const disc = b * b - 4 * a * c;
+  const landingT = disc >= 0 ? (-b - Math.sqrt(disc)) / (2 * a) : 2.5;
+  const tMax = Math.max(0.05, landingT);
+
+  const positions = throwArcGeo.attributes.position.array;
+  for (let i = 0; i <= THROW_ARC_SEGMENTS; i++){
+    const t = (i / THROW_ARC_SEGMENTS) * tMax;
+    const x = origin.x + vx * t;
+    const y = Math.max(0, origin.y + vy * t - 0.5 * THROW_PREVIEW_GRAVITY_MPS2 * t * t);
+    const z = origin.z + vz * t;
+    positions[i * 3] = x;
+    positions[i * 3 + 1] = y;
+    positions[i * 3 + 2] = z;
+  }
+  throwArcGeo.attributes.position.needsUpdate = true;
+  throwArcGeo.computeBoundingSphere();
+  throwArcLine.visible = true;
+
+  const landX = origin.x + vx * tMax;
+  const landZ = origin.z + vz * tMax;
+  throwLandingMesh.position.set(landX, 0.03, landZ);
+  throwLandingMesh.visible = true;
 }
 renderer.domElement.addEventListener('mousedown', e => {
   if (!pointerLocked){ renderer.domElement.requestPointerLock(); return; }
@@ -883,6 +1048,10 @@ function loop(now){
   updateCamera(dt);
   updatePlayerVisual();
   updateReticle();
+  updateTargetReticle();
+  updateThrowPreview();
+  // 投擲構え中(throwAimHeld)は追尾レティクルを消し、弾道プレビューに切り替える。
+  document.getElementById('reticle').style.display = throwAimHeld ? 'none' : 'block';
   document.getElementById('fov-state').textContent =
     `FOV: ${camera.fov.toFixed(1)}°(${throwAimHeld ? '投擲構え' : (form === 'squid' ? 'イカ状態' : 'ヒト状態')})`;
 
