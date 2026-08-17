@@ -50,13 +50,34 @@
     transition: width .08s linear;
   }
 
-  #crosshair{
-    position:absolute; top:50%; left:50%; width:6px; height:6px;
-    margin:-3px 0 0 -3px; border-radius:50%;
-    background: rgba(255,255,255,.85);
-    box-shadow: 0 0 0 1px rgba(0,0,0,.4);
+  #reticle{
+    position:absolute; top:0; left:0; width:0; height:0;
     pointer-events:none;
   }
+  .reticle-ring{
+    position:absolute; top:50%; left:50%; width:15px; height:15px;
+    transform:translate(-50%,-50%);
+    border-radius:50%;
+    border:1.6px solid rgba(255,255,255,.92);
+    box-shadow: 0 0 0 1px rgba(0,0,0,.4);
+  }
+  .reticle-dot{
+    position:absolute; top:50%; left:50%; width:4px; height:4px;
+    transform:translate(-50%,-50%);
+    border-radius:50%;
+    background: rgba(255,255,255,.95);
+    box-shadow: 0 0 0 1px rgba(0,0,0,.4);
+  }
+  /* 弾の拡散(spreadDeg)がこのラインの位置まで届く可能性がある、という
+     目安を表す4本の線。中心からの距離は毎フレームJSで更新する。 */
+  .reticle-line{
+    position:absolute;
+    background: rgba(255,255,255,.92);
+    box-shadow: 0 0 0 1px rgba(0,0,0,.4);
+    transform:translate(-50%,-50%);
+  }
+  .reticle-line.vertical{ width:2px; height:14px; }
+  .reticle-line.horizontal{ width:14px; height:2px; }
 
   #pointerlock-prompt{
     position:absolute; left:50%; bottom:18px; transform:translateX(-50%);
@@ -90,7 +111,14 @@
       <div id="kill-count" class="label" style="margin-top:6px;">撃破数: 0</div>
     </div>
   </div>
-  <div id="crosshair"></div>
+  <div id="reticle">
+    <div class="reticle-ring"></div>
+    <div class="reticle-dot"></div>
+    <div id="reticle-line-top" class="reticle-line vertical"></div>
+    <div id="reticle-line-bottom" class="reticle-line vertical"></div>
+    <div id="reticle-line-left" class="reticle-line horizontal"></div>
+    <div id="reticle-line-right" class="reticle-line horizontal"></div>
+  </div>
   <div id="fov-state" class="label" style="position:absolute; top:12px; left:50%; transform:translateX(-50%); background:rgba(13,14,18,.6); padding:4px 10px; border-radius:6px; border:1px solid #262a36;">FOV: 55.0°(ヒト状態)</div>
   <div id="scope-note">最小プロトタイプ: 移動・TPS視点・スプラシューター1丁の発射のみ実装。<br>塗り判定/複数武器/スペシャルは未実装(次フェーズ)。<br>右クリック長押し=イカ状態(自陣インク上なら潜行)／Eキー長押し=投擲構え(FOVのみ、投擲自体は未実装)。</div>
   <div id="pointerlock-prompt"><b>クリックしてマウスルックを有効化</b><br>WASD移動／マウスで視点／左クリックで発射</div>
@@ -566,6 +594,45 @@ window.addEventListener('keyup', e => {
 });
 
 let mouseDown = false;
+
+// ==========================================================================
+// レティクル(照準)
+// --------------------------------------------------------------------------
+// 中央の円は常に画面中央=現在の照準方向(getAimDirection()と一致)に固定。
+// 上下左右4本の線は、ブキの拡散角(WEAPON.spreadDeg)が実際に画面上で
+// どこまで広がりうるかを、現在のFOV(投擲構え/イカ状態でのズームも含む)を
+// 使って画面ピクセルへ投影した位置に毎フレーム配置し直す。
+// ズームでFOVが狭くなるほど、同じ拡散角でも見た目の広がりは大きくなる
+// (実際の弾のバラつきと視覚上のスケールが一致する)。
+// ==========================================================================
+const reticleTop = document.getElementById('reticle-line-top');
+const reticleBottom = document.getElementById('reticle-line-bottom');
+const reticleLeft = document.getElementById('reticle-line-left');
+const reticleRight = document.getElementById('reticle-line-right');
+const RETICLE_LINE_HALF = 7; // .reticle-line の長辺の半分(px)。中心からの隙間を作らないための詰め代
+const RETICLE_MIN_OFFSET = 9;   // 拡散角が非常に小さくても最低限これだけ中心から離す
+const RETICLE_MAX_OFFSET = 160; // 画面外まで広がらないようにクランプ
+
+function updateReticle(){
+  const cx = window.innerWidth / 2;
+  const cy = window.innerHeight / 2;
+
+  // 拡散は角度の半値(±spreadDeg/2)が実際の最大ブレ幅なので、その半値を
+  // 現在のFOVの半値との比でスクリーン縦半分(px)に投影する。
+  const halfSpreadRad = (WEAPON.spreadDeg / 2) * Math.PI / 180;
+  const halfFovRad = camera.fov * Math.PI / 360;
+  const rawOffset = (Math.tan(halfSpreadRad) / Math.tan(halfFovRad)) * cy;
+  const offset = Math.max(RETICLE_MIN_OFFSET, Math.min(RETICLE_MAX_OFFSET, rawOffset)) + RETICLE_LINE_HALF;
+
+  reticleTop.style.left = cx + 'px';
+  reticleTop.style.top = (cy - offset) + 'px';
+  reticleBottom.style.left = cx + 'px';
+  reticleBottom.style.top = (cy + offset) + 'px';
+  reticleLeft.style.left = (cx - offset) + 'px';
+  reticleLeft.style.top = cy + 'px';
+  reticleRight.style.left = (cx + offset) + 'px';
+  reticleRight.style.top = cy + 'px';
+}
 renderer.domElement.addEventListener('mousedown', e => {
   if (!pointerLocked){ renderer.domElement.requestPointerLock(); return; }
   if (e.button === 0) mouseDown = true;
@@ -815,6 +882,7 @@ function loop(now){
   updateInk(dt, firing);
   updateCamera(dt);
   updatePlayerVisual();
+  updateReticle();
   document.getElementById('fov-state').textContent =
     `FOV: ${camera.fov.toFixed(1)}°(${throwAimHeld ? '投擲構え' : (form === 'squid' ? 'イカ状態' : 'ヒト状態')})`;
 
