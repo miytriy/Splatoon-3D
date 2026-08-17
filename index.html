@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>インク・ペイントシステム — 3D TPS プロトタイプ (最小構成)</title>
+<title>インク・ペイントシステム — 3D TPS プロトタイプ (塗り移植版)</title>
 <style>
   :root{
     --bg: #14161c;
@@ -131,6 +131,10 @@
       <div class="label">インク残量</div>
       <div id="ink-gauge-outer"><div id="ink-gauge-inner"></div></div>
     </div>
+    <div class="card">
+      <div class="label">塗りポイント</div>
+      <div id="paint-points-value" style="font-weight:700; font-size:20px; color:var(--accent);">0pt</div>
+    </div>
     <div class="card" style="text-align:right">
       <div class="label">ダミーHP</div>
       <div id="dummy-hp-outer"><div id="dummy-hp-inner"></div></div>
@@ -150,7 +154,7 @@
     <div class="target-x"><span></span><span></span></div>
   </div>
   <div id="fov-state" class="label" style="position:absolute; top:12px; left:50%; transform:translateX(-50%); background:rgba(13,14,18,.6); padding:4px 10px; border-radius:6px; border:1px solid #262a36;">FOV: 55.0°(ヒト状態)</div>
-  <div id="scope-note">最小プロトタイプ: 移動・TPS視点・スプラシューター1丁の発射のみ実装。<br>塗り判定/複数武器/スペシャルは未実装(次フェーズ)。<br>右クリック長押し=イカ状態(自陣インク上なら潜行)／Eキー長押し=投擲構え(FOVのみ、投擲自体は未実装)。</div>
+  <div id="scope-note">移動・TPS視点・スプラシューター1丁の発射に加え、塗り判定(インクの蓄積・自陣インク判定・塗りポイント)を2Dプロトタイプから移植済み。<br>複数武器/サブ/スペシャルは未実装(次フェーズ)。<br>右クリック長押し=イカ状態(自陣インク上なら潜行・急速回復)／Eキー長押し=投擲構え(FOVのみ、投擲自体は未実装)。</div>
   <div id="pointerlock-prompt"><b>クリックしてマウスルックを有効化</b><br>WASD移動／マウスで視点／左クリックで発射</div>
 </div>
 
@@ -159,7 +163,7 @@
 /* ==========================================================================
    3D TPS PROTOTYPE — scope for this milestone
    --------------------------------------------------------------------------
-   Ported from the 2D top-down ink prototype. This step ONLY covers:
+   Ported from the 2D top-down ink prototype. This step covers:
      - third-person camera (mouse look via pointer lock, orbiting behind
        the player at a fixed offset)
      - WASD movement relative to camera facing
@@ -167,17 +171,21 @@
        the same fire-interval / ink-cost / range figures as the 2D version
      - a practice dummy target with HP/respawn, so the feel of the weapon
        can be judged directly
+     - インク塗りシステム(2Dプロトタイプ ink-paint-prototype.html からの
+       移植)。coverageLayer/paintLayerの二層構成を、ワールドのXZ平面
+       (地面)へマッピングしたキャンバスとして持ち、CanvasTextureとして
+       地面のマテリアルに貼り付ける形で3D化した。着弾塗り(伸び形状)・
+       足元塗り・中間塗り・塗りポイントの実面積集計はすべて2D版と
+       同じロジックをそのまま使っている。「自陣インク上か」の判定
+       (isOnOwnInk/sampleInkAt)もcoverageLayerの実データを直接参照する
+       ようになり、以前の「デカールへの近接判定による近似」は廃止した。
 
    NOT yet ported (left for a later pass, once this movement/camera/weapon
    core feels right):
-     - the ink coverage system (paint layer, turf-score points) — impacts
-       are shown with a simple flat decal only, for visual feedback, not
-       tracked as coverage. "自陣インク上か" for squid-speed purposes is
-       still approximated via isOnOwnInk() (proximity to a decal); real
-       team-ink tracking (and therefore "敵インク上でイカダッシュ不可" /
-       can't-swim-on-enemy-ink) is not implemented.
      - the other two weapons, sub weapon, both specials
      - walls/obstacles, HUD overlays (pause/menu/customize)
+     - チーム(敵)インクの概念 — このプロトタイプには自陣インクしか無い
+       ため、「敵インク上でイカダッシュ不可」は引き続き未実装
 
    Movement now uses a real acceleration model (see getCurrentAccelMPerS2 /
    getTargetSpeedMPerS / updateMovement): base 0.01m/F² accel toward the
@@ -227,6 +235,17 @@ const WEAPON = {
   speedDU: 22.66,
   damageFalloff: { startFrame: 8, startDamage: 36.0, endFrame: 40, endDamage: 18.0, perFrameDecay: 0.5625 },
   spreadDeg: 4.86,
+
+  // ---- 塗り関連パラメータ(2Dプロトタイプ ink-paint-prototype.html の
+  // スプラシューターの実測値をそのまま移植) ----
+  splatRadiusFalloff: { startDist: 0.22, startRadius: 0.39, endDist: 4.00, endRadius: 0.34 }, // 着弾塗り半径(ライン)
+  stretchFalloff: { startDist: 0.22, startRatio: 2.24, endDist: 4.00, endRatio: 1.12 },       // 着弾塗りの前方伸び率
+  footPaintAvgInterval: 4,     // 足元塗り: 平均4発に1回
+  footPaintRadiusLines: 0.41,  // 足元塗り半径(ライン)
+  midPaintIntervalLines: 1.84, // 中間塗りの間隔(ライン)
+  midPaintAvgPerShot: 1.5,     // 中間塗りの1発あたり平均個数
+  midPaintRadiusLines: 0.29,   // 中間塗りの半径(ライン)
+  singleShotPaintPoints: 4.0,  // 単発塗りポイント(1発で塗れる上限pt)
 
   // ========================================================================
   // 弾道パラメータ (A)~(H) — ①直進状態 → ②減速状態 → ③自由落下状態、の
@@ -310,7 +329,8 @@ const ACCEL_ACTION_DU_PER_F2 = 0.2;
 
 const player = {
   ink: 100, maxInk: 100,
-  regenRate: 10, // ink/sec, natural regen only (matches ヒト状態 in the 2D version)
+  regenRate: 10, // ink/sec — ヒト状態のときの自然回復レート(2D版と同じ)
+  swimRegenRate: 32, // ink/sec — イカ状態かつ自陣インク上のときの急速回復レート(2D版から移植)
   vx: 0, vz: 0, // 現在の実速度 (m/s, ワールド座標)。加速度システムにより毎フレーム目標速度へ漸近する。
   humanSpeed: duPerFrameToMPerSec(HUMAN_SPEED_DU_PER_F[WEAPON.weightClass]),
   squidSpeedOnInk: duPerFrameToMPerSec(SQUID_SPEED_ON_INK_DU_PER_F[WEAPON.weightClass]),
@@ -351,7 +371,9 @@ sun.shadow.mapSize.set(2048, 2048);
 scene.add(sun);
 
 // Ground — a practice-range floor with a faint line grid, matching the
-// 1-line(5m) spacing used in the 2D version's markers.
+// 1-line(5m) spacing used in the 2D version's markers. The material's
+// `map` gets replaced by the paint system's CanvasTexture further below
+// (see "インク塗りシステム"), once ARENA_SIZE/WALL_HALF are available.
 const ARENA_SIZE = linesToMeters(20); // 100m square, same order of size as the 2D canvas arena
 const groundGeo = new THREE.PlaneGeometry(ARENA_SIZE, ARENA_SIZE);
 const groundMat = new THREE.MeshStandardMaterial({ color: 0x2a2d38, roughness: 0.95 });
@@ -374,6 +396,303 @@ function clampToArena(x, z, margin){
     x: Math.max(-WALL_HALF + margin, Math.min(WALL_HALF - margin, x)),
     z: Math.max(-WALL_HALF + margin, Math.min(WALL_HALF - margin, z)),
   };
+}
+
+// ==========================================================================
+// インク塗りシステム(2Dプロトタイプ ink-paint-prototype.html からの移植)
+// --------------------------------------------------------------------------
+// 2D版のcoverageLayer/paintLayerの二層構成をそのまま踏襲する:
+//   coverageLayer: wiki準拠の形状のみを描く「データ層」。塗りポイントの
+//     集計(tickPaintPoints)と自陣インク判定(sampleInkAt)は必ずこちらを
+//     参照する。
+//   paintLayer: coverageLayerと同じコア形状 + 装飾(タンドリル/飛沫)を
+//     加えた「見た目の層」。CanvasTextureとして地面のマテリアルへ直接
+//     貼り付ける。
+// 2D版は「画面ピクセル=ワールド座標」だったが、3D化にあたって「ワールドの
+// XZ平面(地面)を真上から見た正方形のキャンバス」へマッピングする形に
+// 変更した。ワールド座標(メートル)⇔キャンバス座標(px)の変換は
+// worldToMapX()/worldToMapZ()で行う。
+// 地面はrotation.x=-Math.PI/2で回転しているため、ローカルY(=テクスチャV)は
+// ワールドZの符号反転にあたるが、CanvasTextureの既定flipY(=true、canvas行
+// 0→V=1に写す)がちょうどこれを相殺するため、mapZがワールドZに正比例する
+// 素直なマッピングのままでテクスチャの向きが一致する(詳細は各所コメント参照)。
+// ==========================================================================
+const MAP_PIXELS_PER_METER = 12; // 塗りキャンバスの解像度(px/m)
+const MAP_SIZE_PX = Math.round(ARENA_SIZE * MAP_PIXELS_PER_METER);
+
+const paintLayer = document.createElement('canvas');
+paintLayer.width = MAP_SIZE_PX; paintLayer.height = MAP_SIZE_PX;
+const pctx = paintLayer.getContext('2d');
+// 床のベースカラーで塗りつぶしておく(未塗装部分がそのまま床の色に見えるように)。
+pctx.fillStyle = '#2a2d38';
+pctx.fillRect(0, 0, MAP_SIZE_PX, MAP_SIZE_PX);
+
+const coverageLayer = document.createElement('canvas');
+coverageLayer.width = MAP_SIZE_PX; coverageLayer.height = MAP_SIZE_PX;
+const cctx = coverageLayer.getContext('2d');
+
+const paintTexture = new THREE.CanvasTexture(paintLayer);
+groundMat.map = paintTexture;
+groundMat.color.set(0xffffff); // マップの色をそのまま使うため、マテリアル側の色乗算は白(無変換)にしておく
+groundMat.needsUpdate = true;
+
+const TEAM_COLOR_CSS = '#ff5a1f'; // TEAM_COLOR(3D側、下のplayerGroup等で使う0xff5a1f)のCSS表記
+const TEAM_COLOR_RGB = [255, 90, 31];
+
+function worldToMapX(wx){ return (wx + WALL_HALF) * MAP_PIXELS_PER_METER; }
+function worldToMapZ(wz){ return (wz + WALL_HALF) * MAP_PIXELS_PER_METER; }
+function metersToMapPx(m){ return m * MAP_PIXELS_PER_METER; }
+function mapLines(n){ return metersToMapPx(linesToMeters(n)); } // ライン単位 → 塗りキャンバスpx
+
+// --------------------------------------------------------------------------
+// 有機的なインク跡の描画(2D版のblob生成ロジックをそのまま移植)。
+// --------------------------------------------------------------------------
+function blobPoints(cx, cy, baseRadius, numPoints, irregularity, stretchDir, stretchAmt){
+  const points = [];
+  for (let i = 0; i < numPoints; i++){
+    const angle = (i / numPoints) * Math.PI * 2 + (Math.random() - 0.5) * (Math.PI / numPoints);
+    let r = baseRadius * (0.75 + Math.random() * 0.35);
+    if (Math.random() < 0.22) r *= 1.35 + Math.random() * 0.5; // occasional spike toward tendril territory
+    if (stretchDir !== undefined){
+      const rel = Math.atan2(Math.sin(angle - stretchDir), Math.cos(angle - stretchDir));
+      const forwardFactor = (Math.cos(rel) + 1) / 2; // 0 = directly behind, 1 = directly ahead
+      r *= 1 + (stretchAmt - 1) * forwardFactor;
+    }
+    r *= (1 + (Math.random() - 0.5) * 2 * irregularity);
+    points.push({ x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r });
+  }
+  return points;
+}
+
+function drawSmoothBlobPath(pathCtx, points){
+  const n = points.length;
+  const first = points[0], last = points[n - 1];
+  pathCtx.beginPath();
+  pathCtx.moveTo((last.x + first.x) / 2, (last.y + first.y) / 2);
+  for (let i = 0; i < n; i++){
+    const p = points[i];
+    const next = points[(i + 1) % n];
+    const mx = (p.x + next.x) / 2, my = (p.y + next.y) / 2;
+    pathCtx.quadraticCurveTo(p.x, p.y, mx, my);
+  }
+  pathCtx.closePath();
+}
+
+function drawCoreBlob(targetCtx, points){
+  targetCtx.fillStyle = TEAM_COLOR_CSS;
+  drawSmoothBlobPath(targetCtx, points);
+  targetCtx.globalAlpha = 0.9 + Math.random() * 0.1;
+  targetCtx.fill();
+}
+
+function paintTendril(cx, cy, angle, startDist, length, width){
+  const dx = Math.cos(angle), dy = Math.sin(angle);
+  const px = -dy, py = dx;
+  const sx = cx + dx * startDist, sy = cy + dy * startDist;
+  const ex = cx + dx * (startDist + length), ey = cy + dy * (startDist + length);
+  const bend = (Math.random() - 0.5) * width * 3;
+  const mx = cx + dx * (startDist + length * 0.55) + px * bend;
+  const my = cy + dy * (startDist + length * 0.55) + py * bend;
+
+  pctx.globalAlpha = 0.85 + Math.random() * 0.15;
+  pctx.beginPath();
+  pctx.moveTo(sx + px * width, sy + py * width);
+  pctx.quadraticCurveTo(mx + px * width * 0.35, my + py * width * 0.35, ex, ey);
+  pctx.quadraticCurveTo(mx - px * width * 0.35, my - py * width * 0.35, sx - px * width, sy - py * width);
+  pctx.closePath();
+  pctx.fill();
+
+  if (Math.random() < 0.65){
+    pctx.beginPath();
+    pctx.arc(ex, ey, width * (1 + Math.random() * 1.4), 0, Math.PI * 2);
+    pctx.fill();
+  }
+}
+
+function paintSpatter(cx, cy, baseRadius, biasDir){
+  const count = 4 + Math.floor(Math.random() * 5);
+  for (let i = 0; i < count; i++){
+    const angle = (biasDir !== undefined && Math.random() < 0.55)
+      ? biasDir + (Math.random() - 0.5) * 1.3
+      : Math.random() * Math.PI * 2;
+    const dist = baseRadius * (1.05 + Math.random() * 1.4);
+    const r = baseRadius * (0.04 + Math.random() * 0.1);
+    pctx.globalAlpha = 0.65 + Math.random() * 0.35;
+    pctx.beginPath();
+    pctx.arc(cx + Math.cos(angle) * dist, cy + Math.sin(angle) * dist, r, 0, Math.PI * 2);
+    pctx.fill();
+  }
+}
+
+// Plain (non-directional) organic splat — 足元塗り・中間塗り用。
+function paintSplat(cx, cy, baseRadius){
+  const numPoints = 8 + Math.floor(Math.random() * 4);
+  const corePoints = blobPoints(cx, cy, baseRadius, numPoints, 0.3);
+  drawCoreBlob(cctx, corePoints);
+  drawCoreBlob(pctx, corePoints);
+
+  if (Math.random() < 0.6){
+    const angle = Math.random() * Math.PI * 2;
+    const dist = baseRadius * (0.15 + Math.random() * 0.3);
+    const subPoints = blobPoints(cx + Math.cos(angle) * dist, cy + Math.sin(angle) * dist,
+                                  baseRadius * (0.4 + Math.random() * 0.3), 7, 0.35);
+    drawCoreBlob(cctx, subPoints);
+    drawCoreBlob(pctx, subPoints);
+  }
+
+  paintSpatter(cx, cy, baseRadius);
+  pctx.globalAlpha = 1;
+}
+
+// 着弾塗り(伸び形状) — 弾の飛行方向へ伸びるブロブ + タンドリル + 飛沫。
+function paintSplatStretched(cx, cy, baseRadius, dirAngle, stretchRatio){
+  const centerShift = baseRadius * (stretchRatio - 1) * 0.3;
+  const bx = cx + Math.cos(dirAngle) * centerShift;
+  const by = cy + Math.sin(dirAngle) * centerShift;
+
+  const numPoints = 10 + Math.floor(Math.random() * 4);
+  const corePoints = blobPoints(bx, by, baseRadius, numPoints, 0.28, dirAngle, stretchRatio);
+  drawCoreBlob(cctx, corePoints);
+  drawCoreBlob(pctx, corePoints);
+
+  const secondaryCount = 1 + Math.floor(Math.random() * 2);
+  for (let i = 0; i < secondaryCount; i++){
+    const angle = dirAngle + (Math.random() - 0.5) * 2.2;
+    const dist = baseRadius * (0.2 + Math.random() * 0.4);
+    const sx = bx + Math.cos(angle) * dist, sy = by + Math.sin(angle) * dist;
+    const subPoints = blobPoints(sx, sy, baseRadius * (0.35 + Math.random() * 0.3), 7, 0.35);
+    drawCoreBlob(cctx, subPoints);
+    drawCoreBlob(pctx, subPoints);
+  }
+
+  const tendrilCount = 3 + Math.floor(Math.random() * 4);
+  for (let i = 0; i < tendrilCount; i++){
+    const angle = Math.random() < 0.7
+      ? dirAngle + (Math.random() - 0.5) * 1.5
+      : Math.random() * Math.PI * 2;
+    const startDist = baseRadius * (0.55 + Math.random() * 0.3);
+    const length = baseRadius * (0.35 + Math.random() * 0.55) * (0.6 + stretchRatio * 0.4);
+    const width = baseRadius * (0.08 + Math.random() * 0.07);
+    paintTendril(bx, by, angle, startDist, length, width);
+  }
+
+  paintSpatter(bx, by, baseRadius, dirAngle);
+  pctx.globalAlpha = 1;
+}
+
+// ワールド座標(メートル)から呼び出す用のラッパー。このプロトタイプには
+// 壁オブジェクトが無いため、2D版のpaintSplatClippedにあったOBSTACLES判定は
+// 省略している。
+function paintSplatAtWorld(wx, wz, baseRadiusLines){
+  paintSplat(worldToMapX(wx), worldToMapZ(wz), mapLines(baseRadiusLines));
+}
+function paintSplatStretchedAtWorld(wx, wz, baseRadiusLines, dirAngleXZ, stretchRatio){
+  paintSplatStretched(worldToMapX(wx), worldToMapZ(wz), mapLines(baseRadiusLines), dirAngleXZ, stretchRatio);
+}
+
+// 着弾塗り半径・前方伸び率: 飛距離(ライン)に応じた線形補間(2D版と同じ式)。
+function getSplatRadiusLines(weapon, traveledLines){
+  const f = weapon.splatRadiusFalloff;
+  if (!f) return 0.15;
+  if (traveledLines <= f.startDist) return f.startRadius;
+  if (traveledLines >= f.endDist) return f.endRadius;
+  const t = (traveledLines - f.startDist) / (f.endDist - f.startDist);
+  return f.startRadius + (f.endRadius - f.startRadius) * t;
+}
+function getStretchRatio(weapon, traveledLines){
+  const f = weapon.stretchFalloff;
+  if (!f) return 1;
+  if (traveledLines <= f.startDist) return f.startRatio;
+  if (traveledLines >= f.endDist) return f.endRatio;
+  const t = (traveledLines - f.startDist) / (f.endDist - f.startDist);
+  return f.startRatio + (f.endRatio - f.startRatio) * t;
+}
+
+// 足元塗り・中間塗りの発生判定(2D版と同じ「累積個数の差分」ロジック)。
+function shouldFootPaint(weapon, shotIndex){
+  if (weapon.footPaintAvgInterval === undefined) return false;
+  const avg = weapon.footPaintAvgInterval;
+  return Math.floor(shotIndex / avg) > Math.floor((shotIndex - 1) / avg);
+}
+function midPaintDropsForShot(weapon, shotIndex){
+  if (weapon.midPaintAvgPerShot === undefined) return 0;
+  const avg = weapon.midPaintAvgPerShot;
+  return Math.floor(avg * shotIndex) - Math.floor(avg * (shotIndex - 1));
+}
+// 中間塗り: プレイヤー(発射地点)〜着弾点の間に固定パターンぶんのドロップを
+// 配置する。ワールド座標(メートル)で開始/終了点を受け取り、内部でmap-pxへ
+// 変換してから2D版と同じ間隔/個数ロジックで配置する。
+function paintMidDotsWorld(weapon, startWX, startWZ, endWX, endWZ, shotIndex){
+  if (weapon.midPaintIntervalLines === undefined) return;
+  const startX = worldToMapX(startWX), startY = worldToMapZ(startWZ);
+  const endX = worldToMapX(endWX), endY = worldToMapZ(endWZ);
+  const dx = endX - startX, dy = endY - startY;
+  const lenPx = Math.hypot(dx, dy);
+  if (lenPx < 1) return;
+  const ux = dx / lenPx, uy = dy / lenPx;
+  const intervalPx = mapLines(weapon.midPaintIntervalLines);
+  const maxByPattern = midPaintDropsForShot(weapon, shotIndex || 1);
+  const maxByDistance = Math.floor(lenPx / intervalPx);
+  const count = Math.min(maxByPattern, maxByDistance);
+  for (let i = 1; i <= count; i++){
+    const d = i * intervalPx;
+    if (d >= lenPx) break;
+    paintSplat(startX + ux * d, startY + uy * d, mapLines(weapon.midPaintRadiusLines));
+  }
+}
+
+// --------------------------------------------------------------------------
+// 塗りポイントの集計(2D版と同じ「ダウンサンプル+前回マスクとの差分」方式)。
+// 換算係数(POINTS_PER_LINE_SQUARED)は2D版のユーザー実測に基づく暫定値を
+// そのまま使う: 1p ≒ 0.1265 ライン²。
+// --------------------------------------------------------------------------
+const POINTS_PER_LINE_SQUARED = 1 / 0.1265;
+const PAINT_SAMPLE_SIZE = 120;
+const sampleCanvas = document.createElement('canvas');
+sampleCanvas.width = PAINT_SAMPLE_SIZE; sampleCanvas.height = PAINT_SAMPLE_SIZE;
+const sctx = sampleCanvas.getContext('2d');
+let prevSampleMask = new Uint8Array(PAINT_SAMPLE_SIZE * PAINT_SAMPLE_SIZE);
+let totalPaintPoints = 0;
+const METERS_PER_SAMPLE_PIXEL = ARENA_SIZE / PAINT_SAMPLE_SIZE;
+const LINE_AREA_PER_SAMPLE_PIXEL = Math.pow(METERS_PER_SAMPLE_PIXEL / METERS_PER_LINE, 2);
+
+function tickPaintPoints(){
+  sctx.clearRect(0, 0, PAINT_SAMPLE_SIZE, PAINT_SAMPLE_SIZE);
+  sctx.drawImage(coverageLayer, 0, 0, PAINT_SAMPLE_SIZE, PAINT_SAMPLE_SIZE);
+  const data = sctx.getImageData(0, 0, PAINT_SAMPLE_SIZE, PAINT_SAMPLE_SIZE).data;
+  let newlyPainted = 0;
+  for (let i = 0, px = 0; i < data.length; i += 4, px++){
+    const isPainted = data[i + 3] > 40 ? 1 : 0;
+    if (isPainted && !prevSampleMask[px]) newlyPainted++;
+    prevSampleMask[px] = isPainted;
+  }
+  totalPaintPoints += newlyPainted * LINE_AREA_PER_SAMPLE_PIXEL * POINTS_PER_LINE_SQUARED;
+  return totalPaintPoints;
+}
+
+// 単発塗りポイントの上限を厳守する(2D版と同じ「実測値と公称値の小さい方」方式)。
+function creditCappedPaintPoints(nominalPoints){
+  if (nominalPoints === undefined) return;
+  const before = totalPaintPoints;
+  tickPaintPoints();
+  const areaBasedDelta = totalPaintPoints - before; // 常に0以上
+  const credited = Math.min(areaBasedDelta, nominalPoints);
+  totalPaintPoints = before + credited;
+}
+
+// 自陣インク上か: coverageLayer(データ層)からプレイヤー足元の1pxを読み取る。
+// 旧バージョンでは「デカールへの近接判定」による近似だったが、実データを
+// 直接参照する形に置き換えた。
+function sampleInkAt(wx, wz){
+  const mxPx = Math.min(Math.max(Math.round(worldToMapX(wx)), 0), MAP_SIZE_PX - 1);
+  const myPx = Math.min(Math.max(Math.round(worldToMapZ(wz)), 0), MAP_SIZE_PX - 1);
+  const data = cctx.getImageData(mxPx, myPx, 1, 1).data;
+  if (data[3] < 40) return false; // 実質未塗装
+  const dist = Math.abs(data[0] - TEAM_COLOR_RGB[0]) + Math.abs(data[1] - TEAM_COLOR_RGB[1]) + Math.abs(data[2] - TEAM_COLOR_RGB[2]);
+  return dist < 90; // チーム色に十分近ければ自陣インクとみなす(ブロブのアルファ合成による誤差を許容)
+}
+function isOnOwnInk(){
+  return sampleInkAt(playerGroup.position.x, playerGroup.position.z);
 }
 
 // --------------------------------------------------------------------------
@@ -521,20 +840,11 @@ function sphereHitTest(point, cx, cz, baseY, hitbox, extraRadius){
 }
 
 // --------------------------------------------------------------------------
-// "自陣インク上か" — approximated by checking whether the player is
-// standing within any existing shot-impact decal's radius, since the full
-// paint-coverage layer hasn't been ported to 3D yet (see the top-of-file
-// scope note). This is enough to demo the surface/submerge visual switch;
-// a real coverage sampler will replace it once painting is ported.
-function isOnOwnInk(){
-  const r = decalGeo.parameters.radius;
-  for (const d of decals){
-    const dx = d.mesh.position.x - playerGroup.position.x;
-    const dz = d.mesh.position.z - playerGroup.position.z;
-    if (dx * dx + dz * dz < r * r) return true;
-  }
-  return false;
-}
+// "自陣インク上か" は、ファイル上部の「インク塗りシステム」ブロックで
+// 定義した isOnOwnInk()/sampleInkAt()(coverageLayerの実データを参照)を
+// そのまま使う。以前あった「デカールへの近接判定による近似」はここでは
+// 不要になったため削除した。
+// --------------------------------------------------------------------------
 
 // Switches between the human model, the surfaced squid model, and the
 // fully-submerged look (both models hidden, only the ink puddle + tank UI
@@ -896,13 +1206,16 @@ renderer.domElement.addEventListener('mousedown', e => {
   if (!pointerLocked){ renderer.domElement.requestPointerLock(); return; }
   if (e.button === 0) mouseDown = true;
   // イカ状態: 右クリック長押しの間、姿とFOV(60°)を切り替える。自陣インクの
-  // 上ならインクの中に潜った見た目になる(isOnOwnInk()参照、既存の着弾
-  // デコールで近似判定)。泳ぐ速度変化など塗り連動のゲームプレイ本体は
-  // まだ未実装(次フェーズ)。
+  // 上ならインクの中に潜った見た目になる(isOnOwnInk()参照、coverageLayerの
+  // 実データを参照)。泳ぐ速度変化・急速回復は下記updateMovement/updateInkで
+  // 実際に反映される。
   if (e.button === 2) form = 'squid';
 });
 window.addEventListener('mouseup', e => {
-  if (e.button === 0) mouseDown = false;
+  if (e.button === 0){
+    mouseDown = false;
+    burstShotCount = 0; // トリガーを離したら足元塗り・中間塗りのパターンをリセット
+  }
   if (e.button === 2) form = 'human';
 });
 renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
@@ -939,8 +1252,8 @@ function getCurrentAccelMPerS2(actionState){
 function getTargetSpeedMPerS(firing){
   if (form === 'squid'){
     // 「敵インク上ではイカダッシュ不可(泳げない)」は、このプロトタイプに
-    // チーム/敵インクの概念がまだ無いため未実装。自陣インク判定は既存の
-    // isOnOwnInk()(着弾デコールへの近接判定)による近似のまま。
+    // チーム/敵インクの概念がまだ無いため未実装。自陣インク判定は
+    // coverageLayerの実データを見るisOnOwnInk()で行う。
     return isOnOwnInk() ? player.squidSpeedOnInk : player.squidSpeedOffInk;
   }
   return firing ? player.shootSpeed : player.humanSpeed;
@@ -1001,18 +1314,18 @@ function updateMovement(dt, firing, actionState){
 
 // ==========================================================================
 // Weapon: single-shot spawn, straight-line travel, dummy/range/bounds hit
-// check. No falloff-based splat/paint yet — impacts leave a flat decal
-// purely for visual feedback (not scored, not sampled for anything).
+// check. 着弾/失速/場外時には(旧バージョンの平坦なデカールに代わって)
+// 実際にインク塗りシステム(paintImpactSplat)を呼び、着弾塗り(伸び形状)・
+// 中間塗り・塗りポイント加算を行う。
+// A crude exponential fallback is kept for any future weapon added without
+// verified decel/freefall constants.
 // ==========================================================================
 const projectiles = [];
 const projGeo = new THREE.SphereGeometry(0.05, 8, 8);
 const projMat = new THREE.MeshBasicMaterial({ color: 0xffd8c2 });
 
-const decalGeo = new THREE.CircleGeometry(0.35, 16);
-const decalMat = new THREE.MeshBasicMaterial({ color: TEAM_COLOR, transparent: true, opacity: 0.85 });
-const decals = [];
-
 let lastShotAt = 0;
+let burstShotCount = 0; // マウス押しっぱなしの間の発射数(足元塗り・中間塗りのパターン管理用)
 
 function fireShot(){
   if (player.ink < WEAPON.inkPerShot) return;
@@ -1039,6 +1352,12 @@ function fireShot(){
   const initialSpeed = duPerFrameToMPerSec(b.A_initialSpeedDU);
   const vel = dir.clone().multiplyScalar(initialSpeed);
 
+  burstShotCount++;
+  // 足元塗り: 発数ベースの固定パターンで発生(2D版shouldFootPaint()と同じロジック)。
+  if (shouldFootPaint(WEAPON, burstShotCount)){
+    paintSplatAtWorld(playerGroup.position.x, playerGroup.position.z, WEAPON.footPaintRadiusLines);
+  }
+
   projectiles.push({
     mesh,
     pos: origin.clone(),
@@ -1048,20 +1367,22 @@ function fireShot(){
     range: linesToMeters(WEAPON.maxRangeLines),
     frameCount: 0,
     alive: true,
+    startX: origin.x, startZ: origin.z,     // 中間塗りの経路計算用(発射地点)
+    dirAngleXZ: Math.atan2(dir.z, dir.x),   // 着弾塗りの伸び方向(XZ平面上の角度)
+    burstShotIndex: burstShotCount,         // 中間塗りの発数パターン用
   });
 }
 
-function spawnDecal(pos){
-  const mesh = new THREE.Mesh(decalGeo, decalMat.clone());
-  mesh.rotation.x = -Math.PI / 2;
-  mesh.position.set(pos.x, 0.02, pos.z);
-  scene.add(mesh);
-  decals.push({ mesh, bornAt: performance.now() });
-  // Cap decal count so the scene doesn't grow forever in this prototype.
-  if (decals.length > 120){
-    const old = decals.shift();
-    scene.remove(old.mesh);
-  }
+// 着弾時の塗り処理: 着弾塗り(伸び形状)＋中間塗り＋塗りポイント加算。
+// 2D版のupdateProjectiles()内、着弾/命中時のcreditCappedPaintPoints()呼び
+// 出しに相当する。
+function paintImpactSplat(p, landPos){
+  const traveledLines = p.traveled / METERS_PER_LINE;
+  const radiusLines = getSplatRadiusLines(WEAPON, traveledLines);
+  const stretchRatio = getStretchRatio(WEAPON, traveledLines);
+  paintSplatStretchedAtWorld(landPos.x, landPos.z, radiusLines, p.dirAngleXZ, stretchRatio);
+  paintMidDotsWorld(WEAPON, p.startX, p.startZ, landPos.x, landPos.z, p.burstShotIndex);
+  creditCappedPaintPoints(WEAPON.singleShotPaintPoints);
 }
 
 function getShotDamage(frameNumber){
@@ -1160,11 +1481,11 @@ function updateProjectiles(dt){
           document.getElementById('kill-count').textContent = `撃破数: ${killCount}`;
           setTimeout(respawnDummy, 500);
         }
-        spawnDecal(next);
+        paintImpactSplat(p, next);
         scene.remove(p.mesh);
         p.alive = false;
       } else if (outOfRange || outOfBounds){
-        spawnDecal(next);
+        paintImpactSplat(p, next);
         scene.remove(p.mesh);
         p.alive = false;
       } else {
@@ -1194,9 +1515,12 @@ function updateWeapon(dt){
 }
 
 function updateInk(dt, firing){
-  // インク回復不能時間は今回は簡略化し、発射していない間は常に自然回復する。
+  // インク回復不能時間は今回は簡略化し、発射していない間は常に回復する。
+  // イカ状態かつ自陣インク上のときだけ急速回復(2D版のswimRegenRateを移植)。
   if (!firing){
-    player.ink = Math.min(player.maxInk, player.ink + player.regenRate * dt);
+    const rapid = form === 'squid' && isOnOwnInk();
+    const rate = rapid ? player.swimRegenRate : player.regenRate;
+    player.ink = Math.min(player.maxInk, player.ink + rate * dt);
   }
   document.getElementById('ink-gauge-inner').style.width = (player.ink / player.maxInk * 100) + '%';
 }
@@ -1226,6 +1550,10 @@ function loop(now){
   document.getElementById('reticle').style.display = throwAimHeld ? 'none' : 'block';
   document.getElementById('fov-state').textContent =
     `FOV: ${camera.fov.toFixed(1)}°(${throwAimHeld ? '投擲構え' : (form === 'squid' ? 'イカ状態' : 'ヒト状態')})`;
+
+  // 塗りキャンバスの内容をGPUテクスチャへ反映し、塗りポイントのHUD表示を更新する。
+  paintTexture.needsUpdate = true;
+  document.getElementById('paint-points-value').textContent = Math.round(totalPaintPoints) + 'pt';
 
   renderer.render(scene, camera);
   requestAnimationFrame(loop);
