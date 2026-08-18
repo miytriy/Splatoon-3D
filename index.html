@@ -1238,7 +1238,9 @@ window.addEventListener('keydown', e => {
   if (k === 'e') throwAimHeld = true;
   if (k === ' '){
     e.preventDefault(); // ブラウザのページスクロールを防ぐ
-    if (grounded && form === 'human'){
+    // イカ状態でもジャンプできるようにする(スプラトゥーンのイカロールを
+    // 意識した挙動で、ヒト状態限定にする仕様上の理由は無いため)。
+    if (grounded){
       vy = JUMP_SPEED_MPS;
       grounded = false;
     }
