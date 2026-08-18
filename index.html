@@ -122,6 +122,79 @@
     background: rgba(13,14,18,.6); border:1px solid #262a36;
     border-radius:6px; padding:6px 9px; pointer-events:none;
   }
+
+  /* ------------------------------------------------------------------
+     オーバーレイ共通(ポーズ／メニュー／カスタマイズ／スタブ)。2Dプロト
+     タイプ(ink-paint-prototype.html)のCSSをそのまま移植したもの。
+     ------------------------------------------------------------------ */
+  .overlay{
+    position:absolute; inset:0;
+    background: rgba(8,9,12,0.72);
+    display:flex; align-items:center; justify-content:center;
+    z-index:60;
+  }
+  .overlay.hidden{ display:none; }
+  .overlay-panel{
+    background: var(--panel);
+    border: 1px solid #33384a;
+    border-radius: 12px;
+    padding: 20px 24px;
+    min-width: 260px;
+    max-width: 380px;
+    max-height: calc(100% - 40px);
+    overflow-y: auto;
+    box-shadow: 0 20px 50px -20px #000;
+  }
+  .overlay-panel h2{
+    margin: 0 0 14px 0;
+    font-size: 14px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--text);
+    border-bottom: 1px solid #33384a;
+    padding-bottom: 8px;
+  }
+  .overlay-panel h3{
+    margin: 14px 0 8px 0;
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .overlay-panel p{ font-size:12px; color: var(--text); line-height:1.7; margin: 6px 0; }
+  .overlay-btn-col{ display:flex; flex-direction:column; gap:8px; margin-top:4px; }
+  .overlay-btn-col button{ width:100%; padding:9px 12px; text-align:left; }
+  .overlay-tabs{ display:flex; gap:6px; margin-bottom:12px; }
+  .overlay-tabs button{ flex:1; }
+  .overlay-tabs button.active{ border-color: var(--ink); color: var(--ink); }
+  .overlay-close-row{ margin-top:16px; display:flex; justify-content:flex-end; }
+  .weapon-pick-btn{ width:100%; padding:8px 12px; text-align:left; margin-bottom:6px; }
+  .weapon-pick-btn.active{ border-color: var(--ink); color: var(--ink); }
+  .help-key-list{ list-style:none; padding:0; margin:0; font-size:12px; }
+  .help-key-list li{
+    display:flex; justify-content:space-between; gap:10px;
+    padding:6px 0; border-bottom:1px solid #262a36;
+  }
+  .help-key-list li:last-child{ border-bottom:none; }
+  .help-key-list b{ color: var(--text); white-space:nowrap; }
+  .help-key-list span{ color: var(--muted); text-align:right; }
+  .help-note{ font-size:11px; color: var(--muted); margin-top:10px; line-height:1.6; }
+  .sensitivity-row{ display:flex; align-items:center; gap:10px; }
+  .sensitivity-row input[type="range"]{ flex:1; }
+  .sensitivity-value{ font-size:12px; color: var(--accent); width:2em; text-align:right; }
+
+  button{
+    background: var(--panel); color: var(--text); border:1px solid #33384a;
+    border-radius:6px; padding:5px 12px; font-size:12px; cursor:pointer;
+    font-family: inherit;
+  }
+  button:hover{ border-color: var(--ink); }
+
+  #footer-hint{
+    position:absolute; bottom:12px; right:12px; font-size:11px; color: var(--muted);
+    background: rgba(13,14,18,.6); border:1px solid #262a36; border-radius:6px;
+    padding:6px 9px; pointer-events:none;
+  }
 </style>
 </head>
 <body>
@@ -155,7 +228,72 @@
   </div>
   <div id="fov-state" class="label" style="position:absolute; top:12px; left:50%; transform:translateX(-50%); background:rgba(13,14,18,.6); padding:4px 10px; border-radius:6px; border:1px solid #262a36;">FOV: 55.0°(ヒト状態)</div>
   <div id="scope-note">移動・TPS視点・スプラシューター1丁の発射に加え、塗り判定(インクの蓄積・自陣インク判定・塗りポイント)を2Dプロトタイプから移植済み。<br>複数武器/サブ/スペシャルは未実装(次フェーズ)。<br>右クリック長押し=イカ状態(自陣インク上なら潜行・急速回復)／Eキー長押し=投擲構え(FOVのみ、投擲自体は未実装)。</div>
+  <div id="footer-hint">ESC ポーズ　／　F メニュー　／　B カスタマイズ</div>
   <div id="pointerlock-prompt"><b>クリックしてマウスルックを有効化</b><br>WASD移動／マウスで視点／左クリックで発射</div>
+  <div id="special-toast" class="label" style="position:absolute; top:52px; left:50%; transform:translateX(-50%); background:rgba(13,14,18,.78); padding:5px 12px; border-radius:6px; border:1px solid #262a36; color:var(--ink); opacity:0; transition:opacity .2s; pointer-events:none;">スペシャル: このプロトタイプでは未実装です</div>
+
+  <!-- ========================================================================
+       ポーズオーバーレイ(ESC)。2Dプロトタイプと同じく「ゲームに戻る・
+       塗りリセット」を選べる(このプロトタイプには「射撃場を退出」に相当する
+       別モードが無いため、その項目は割愛した)。開いている間は時が止まる
+       (=update系の呼び出しをスキップする。mainループのoverlay判定を参照)。
+       ======================================================================== -->
+  <div id="pause-overlay" class="overlay hidden">
+    <div class="overlay-panel">
+      <h2>ポーズ</h2>
+      <div class="overlay-btn-col">
+        <button id="resume-btn">▶ ゲームに戻る</button>
+        <button id="pause-reset-btn">塗りリセット</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       メニューオーバーレイ(F)。射撃場・オプション・ヘルプの3タブ構成
+       (2Dプロトタイプ踏襲)。
+       ======================================================================== -->
+  <div id="menu-overlay" class="overlay hidden">
+    <div class="overlay-panel">
+      <h2>メニュー</h2>
+      <div class="overlay-tabs">
+        <button data-menu-tab="range">射撃場</button>
+        <button data-menu-tab="options">オプション</button>
+        <button data-menu-tab="help">ヘルプ</button>
+      </div>
+      <div id="menu-content"></div>
+      <div class="overlay-close-row"><button id="menu-close-btn">閉じる</button></div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       カスタマイズオーバーレイ(B)。このプロトタイプはまだスプラシューター
+       1丁のみのため、ブキ一覧は「選択中(変更不可)」の表示に留め、感度設定
+       だけを実際に機能させる。
+       ======================================================================== -->
+  <div id="customize-overlay" class="overlay hidden">
+    <div class="overlay-panel">
+      <h2>カスタマイズ</h2>
+      <h3>メインウェポン</h3>
+      <div id="customize-weapon-list"></div>
+      <h3>感度</h3>
+      <div class="sensitivity-row">
+        <input type="range" id="sensitivity-slider" min="1" max="10" step="1" value="5">
+        <div class="sensitivity-value" id="sensitivity-value">5</div>
+      </div>
+      <div class="overlay-close-row"><button id="customize-close-btn">閉じる</button></div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       未実装機能向けの簡易スタブオーバーレイ(ロビーメニュー[Q]・マップ[M]用)。
+       ======================================================================== -->
+  <div id="stub-overlay" class="overlay hidden">
+    <div class="overlay-panel">
+      <h2 id="stub-title">–</h2>
+      <p>この機能はこのプロトタイプでは未実装です。</p>
+      <div class="overlay-close-row"><button id="stub-close-btn">閉じる</button></div>
+    </div>
+  </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -179,11 +317,16 @@
        同じロジックをそのまま使っている。「自陣インク上か」の判定
        (isOnOwnInk/sampleInkAt)もcoverageLayerの実データを直接参照する
        ようになり、以前の「デカールへの近接判定による近似」は廃止した。
+     - 2Dプロトタイプの操作方法一式(照準ロック・ジャンプ・スペシャル発動
+       キー・ポーズ/メニュー/カスタマイズ/ロビー/マップの各オーバーレイと
+       それらを開くキー)を移植。オーバーレイ・スペシャル・ジャンプ周りの
+       詳細は各セクションのコメントを参照。
 
    NOT yet ported (left for a later pass, once this movement/camera/weapon
    core feels right):
-     - the other two weapons, sub weapon, both specials
-     - walls/obstacles, HUD overlays (pause/menu/customize)
+     - the other two weapons, sub weapon, both specials(Rキーは受け付ける
+       が、実際に発動するスペシャルはまだ無いためスタブ扱い)
+     - walls/obstacles
      - チーム(敵)インクの概念 — このプロトタイプには自陣インクしか無い
        ため、「敵インク上でイカダッシュ不可」は引き続き未実装
 
@@ -913,7 +1056,9 @@ function updateDummyHpUI(){
 let yaw = Math.PI;   // facing -Z initially (toward the dummy)
 let pitch = -0.18;   // radians, positive = looking up, negative = looking down
 const PITCH_MIN = -1.2, PITCH_MAX = 0.9;
-const MOUSE_SENSITIVITY = 0.0022;
+let sensitivity = 5; // 1〜10。2Dプロトタイプのカスタマイズ画面と同じ考え方で、5を基準値にする。
+const MOUSE_SENSITIVITY_BASE = 0.0022; // 感度5(中央値)のときの基準値
+function currentMouseSensitivity(){ return MOUSE_SENSITIVITY_BASE * (sensitivity / 5); }
 const CAMERA_DISTANCE = 7.8;
 const CAMERA_HEIGHT = 3.4;
 
@@ -981,12 +1126,15 @@ document.getElementById('pointerlock-prompt').addEventListener('click', () => {
 });
 document.addEventListener('pointerlockchange', () => {
   pointerLocked = document.pointerLockElement === renderer.domElement;
-  document.getElementById('pointerlock-prompt').classList.toggle('hidden', pointerLocked);
+  updatePointerLockPromptVisibility();
 });
 document.addEventListener('mousemove', e => {
   if (!pointerLocked) return;
-  yaw -= e.movementX * MOUSE_SENSITIVITY;
-  pitch -= e.movementY * MOUSE_SENSITIVITY;
+  if (activeOverlay !== null) return; // オーバーレイ表示中は視点を動かさない
+  if (aimLocked) return; // 照準ロック(Shift)中は、体だけ動いても視点は固定する
+  const s = currentMouseSensitivity();
+  yaw -= e.movementX * s;
+  pitch -= e.movementY * s;
   pitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, pitch));
 });
 
@@ -1025,20 +1173,95 @@ function updateCamera(dt){
 // Movement (WASD, relative to camera/player yaw — matches the 2D
 // prototype's "aim direction independent of strafe direction" feel, since
 // yaw here doubles as both facing and camera direction).
+// --------------------------------------------------------------------------
+// 2Dプロトタイプからの追加操作:
+//   ・Shift(長押し) — 照準ロック(カニ歩き)。押している間はmousemoveによる
+//     yaw/pitchの更新を止め、体だけ移動できるようにする(2D版のaimLockedを
+//     そのまま移植)。
+//   ・スペース — ジャンプ。2D版はトップダウンで未実装のままだったが、3D化
+//     したことで意味のある操作になるため、簡易的な放物運動(重力+初速)で
+//     実装した。接地判定はplayerGroup.position.y<=0で行う単純なもの。
+//   ・R — スペシャル発動キー。2D版のトルネード/スーパーショットに相当する
+//     機構はまだこの3D版に移植していないため、キー自体は受け付けるが
+//     「スペシャル未実装」の一時的なHUDメッセージを出すだけのスタブ。
 // ==========================================================================
 const keys = { w:false, a:false, s:false, d:false };
+let aimLocked = false; // Shift: 照準ロック(カニ歩き)
+const JUMP_SPEED_MPS = 5.2;         // ジャンプ初速(m/s)。人間サイズのキャラが軽快に跳ねる程度の値。
+const GRAVITY_MPS2 = 18;            // 投擲プレビューの重力(THROW_PREVIEW_GRAVITY_MPS2)と揃えた値。
+let vy = 0;                          // プレイヤーの垂直速度(m/s)。0=地面に接地。
+let grounded = true;
+
 window.addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
+  // ---- オーバーレイの開閉トグルキー(ゲームが動いているかどうかに関わらず反応) ----
+  if (e.key === 'Escape'){
+    if (activeOverlay === 'pause') closeOverlay();
+    else openOverlay('pause');
+    return;
+  }
+  if (k === 'f'){
+    if (activeOverlay === 'menu') closeOverlay();
+    else openOverlay('menu');
+    return;
+  }
+  if (k === 'b'){
+    if (activeOverlay === 'customize') closeOverlay();
+    else openOverlay('customize');
+    return;
+  }
+  if (k === 'q'){
+    if (activeOverlay === 'stub' && document.getElementById('stub-title').textContent === 'ロビーメニュー') closeOverlay();
+    else openStubOverlay('ロビーメニュー');
+    return;
+  }
+  if (k === 'm'){
+    if (activeOverlay === 'stub' && document.getElementById('stub-title').textContent === 'マップ') closeOverlay();
+    else openStubOverlay('マップ');
+    return;
+  }
+
+  // オーバーレイが開いている間はここより下のゲームプレイ用キーを無視する。
+  if (activeOverlay !== null) return;
+
   if (k in keys) keys[k] = true;
-  // 投擲構え(スタブ): Eを押している間、最大ズーム時のFOVへ向けて滑らかに
-  // ズームする。実際のサブウェポン投擲はまだ未実装。
+  if (e.key === 'Shift') aimLocked = true;
   if (k === 'e') throwAimHeld = true;
+  if (k === ' '){
+    e.preventDefault(); // ブラウザのページスクロールを防ぐ
+    if (grounded && form === 'human'){
+      vy = JUMP_SPEED_MPS;
+      grounded = false;
+    }
+  }
+  if (k === 'r'){
+    showSpecialStubMessage();
+  }
 });
 window.addEventListener('keyup', e => {
   const k = e.key.toLowerCase();
+  if (activeOverlay !== null) return;
   if (k in keys) keys[k] = false;
+  if (e.key === 'Shift') aimLocked = false;
   if (k === 'e') throwAimHeld = false;
 });
+
+// スペシャル発動キー(R)のスタブ表示: まだ実装が無いことを専用のトースト
+// (#special-toast、fov-stateとは別要素)で一時的に知らせる。fov-state自体は
+// メインループで毎フレーム上書きされるため、そちらを流用すると即座に消され
+// てしまう(このバグは実装時に一度踏んだので、専用要素に分離してある)。
+// 2D版のトルネード/スーパーショットに相当するゲージ・発動システムは未移植
+// (ファイル冒頭のスコープ注記参照)。
+let specialStubTimeoutId = null;
+function showSpecialStubMessage(){
+  const el = document.getElementById('special-toast');
+  if (!el) return;
+  clearTimeout(specialStubTimeoutId);
+  el.style.opacity = '1';
+  specialStubTimeoutId = setTimeout(() => {
+    el.style.opacity = '0';
+  }, 1600);
+}
 
 let mouseDown = false;
 
@@ -1104,7 +1327,7 @@ const targetRingEl = targetReticleEl.querySelector('.target-ring');
 const targetXEl = targetReticleEl.querySelector('.target-x');
 
 function updateTargetReticle(){
-  const showable = form === 'human' && !throwAimHeld && pointerLocked;
+  const showable = form === 'human' && !throwAimHeld && pointerLocked && activeOverlay === null;
   if (!showable){
     targetReticleEl.style.display = 'none';
     return;
@@ -1165,7 +1388,7 @@ throwLandingMesh.visible = false;
 scene.add(throwLandingMesh);
 
 function updateThrowPreview(){
-  if (!throwAimHeld){
+  if (!throwAimHeld || activeOverlay !== null){
     throwArcLine.visible = false;
     throwLandingMesh.visible = false;
     return;
@@ -1174,11 +1397,11 @@ function updateThrowPreview(){
   const origin = playerGroup.position.clone().add(new THREE.Vector3(0, MUZZLE_HEIGHT, 0));
   const dir = getAimDirection();
   const vx = dir.x * THROW_PREVIEW_SPEED_MPS;
-  const vy = dir.y * THROW_PREVIEW_SPEED_MPS;
+  const throwVy = dir.y * THROW_PREVIEW_SPEED_MPS;
   const vz = dir.z * THROW_PREVIEW_SPEED_MPS;
 
   // 放物線 y(t) = originY + vy*t - 0.5*g*t² が地面(y=0)に到達する時刻を解く。
-  const a = -0.5 * THROW_PREVIEW_GRAVITY_MPS2, b = vy, c = origin.y;
+  const a = -0.5 * THROW_PREVIEW_GRAVITY_MPS2, b = throwVy, c = origin.y;
   const disc = b * b - 4 * a * c;
   const landingT = disc >= 0 ? (-b - Math.sqrt(disc)) / (2 * a) : 2.5;
   const tMax = Math.max(0.05, landingT);
@@ -1187,7 +1410,7 @@ function updateThrowPreview(){
   for (let i = 0; i <= THROW_ARC_SEGMENTS; i++){
     const t = (i / THROW_ARC_SEGMENTS) * tMax;
     const x = origin.x + vx * t;
-    const y = Math.max(0, origin.y + vy * t - 0.5 * THROW_PREVIEW_GRAVITY_MPS2 * t * t);
+    const y = Math.max(0, origin.y + throwVy * t - 0.5 * THROW_PREVIEW_GRAVITY_MPS2 * t * t);
     const z = origin.z + vz * t;
     positions[i * 3] = x;
     positions[i * 3 + 1] = y;
@@ -1203,6 +1426,7 @@ function updateThrowPreview(){
   throwLandingMesh.visible = true;
 }
 renderer.domElement.addEventListener('mousedown', e => {
+  if (activeOverlay !== null) return; // オーバーレイ表示中はゲーム内クリックを無視する
   if (!pointerLocked){ renderer.domElement.requestPointerLock(); return; }
   if (e.button === 0) mouseDown = true;
   // イカ状態: 右クリック長押しの間、姿とFOV(60°)を切り替える。自陣インクの
@@ -1219,6 +1443,156 @@ window.addEventListener('mouseup', e => {
   if (e.button === 2) form = 'human';
 });
 renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
+
+// ==========================================================================
+// オーバーレイ(ポーズ／メニュー／カスタマイズ／スタブ) — 2Dプロトタイプ
+// (ink-paint-prototype.html)から移植した状態管理。activeOverlayが
+// null以外の間、メインループ側でupdateMovement/updateWeapon/updateInk/
+// updateCamera/updateThrowPreviewの呼び出しをスキップして「時を止める」。
+// renderer.render自体は毎フレーム呼び続けるので、暗幕の下に直前のフレームが
+// 見え続ける(2D版と同じ演出)。
+// オーバーレイを開く際はポインタロックを解除する(ロック中はOSカーソルが
+// 見えずボタン操作ができないため)。閉じたら「クリックしてマウスルックを
+// 有効化」の案内を出し直し、次のクリックで再ロックできるようにする
+// (ブラウザ側の連続リクエスト制限を避けるため、自動再ロックはしない)。
+// ==========================================================================
+let activeOverlay = null;
+const overlayEls = {
+  pause: document.getElementById('pause-overlay'),
+  menu: document.getElementById('menu-overlay'),
+  customize: document.getElementById('customize-overlay'),
+  stub: document.getElementById('stub-overlay'),
+};
+
+function updatePointerLockPromptVisibility(){
+  const el = document.getElementById('pointerlock-prompt');
+  if (!el) return;
+  el.classList.toggle('hidden', pointerLocked || activeOverlay !== null);
+}
+
+function closeOverlay(){
+  activeOverlay = null;
+  Object.values(overlayEls).forEach(el => el.classList.add('hidden'));
+  mouseDown = false;
+  updatePointerLockPromptVisibility();
+}
+
+function openOverlay(name){
+  activeOverlay = name;
+  Object.entries(overlayEls).forEach(([key, el]) => {
+    el.classList.toggle('hidden', key !== name);
+  });
+  mouseDown = false;
+  keys.w = keys.a = keys.s = keys.d = false;
+  throwAimHeld = false;
+  aimLocked = false; // 押しっぱなしのShiftがオーバーレイを開いた後も残らないようにする
+  if (document.pointerLockElement === renderer.domElement) document.exitPointerLock();
+  updatePointerLockPromptVisibility();
+  if (name === 'menu') showMenuTab('range');
+  if (name === 'customize') refreshCustomizeOverlay();
+}
+
+function openStubOverlay(title){
+  document.getElementById('stub-title').textContent = title;
+  openOverlay('stub');
+}
+
+document.getElementById('resume-btn').addEventListener('click', closeOverlay);
+document.getElementById('pause-reset-btn').addEventListener('click', () => {
+  resetPaint();
+  closeOverlay();
+});
+document.getElementById('stub-close-btn').addEventListener('click', closeOverlay);
+document.getElementById('menu-close-btn').addEventListener('click', closeOverlay);
+document.getElementById('customize-close-btn').addEventListener('click', closeOverlay);
+
+// メニューオーバーレイのタブ切り替え(射撃場／オプション／ヘルプ)。
+const HELP_KEY_ROWS = [
+  ['W A S D', '移動'],
+  ['マウス移動', '視点操作(マウスルック)'],
+  ['左クリック(長押し)', '発射'],
+  ['右クリック(長押し)', 'イカ状態(自陣インク上なら潜行・急速回復)'],
+  ['E(長押し)', '投擲構え(FOVズームのみ。サブウェポン自体は未実装)'],
+  ['R', 'スペシャル発動(未実装。押すとその旨を表示)'],
+  ['Shift(長押し)', '照準ロック(カニ歩き。視点を固定したまま移動できる)'],
+  ['スペース', 'ジャンプ'],
+  ['ESC', 'ポーズ(ゲームに戻る・塗りリセット)'],
+  ['Q', 'ロビーメニュー(未実装)'],
+  ['B', 'カスタマイズ(感度変更)'],
+  ['M', 'マップ(未実装)'],
+  ['F', 'メニュー(射撃場・オプション・ヘルプ)'],
+];
+
+function showMenuTab(tab){
+  document.querySelectorAll('#menu-overlay [data-menu-tab]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.menuTab === tab);
+  });
+  const contentEl = document.getElementById('menu-content');
+  if (tab === 'range'){
+    contentEl.innerHTML = `<p>現在、練習用の射撃レンジにいます。塗りをリセットしたいときはポーズ(ESC)から行えます。</p>`;
+  } else if (tab === 'options'){
+    contentEl.innerHTML = `
+      <h3>感度</h3>
+      <div class="sensitivity-row">
+        <input type="range" id="sensitivity-slider-menu" min="1" max="10" step="1">
+        <div class="sensitivity-value" id="sensitivity-value-menu"></div>
+      </div>
+      <p class="help-note">感度の値は他の各種設定と共有されます(カスタマイズ画面からも同じ値を変更できます)。</p>`;
+    syncSensitivityInput(document.getElementById('sensitivity-slider-menu'), document.getElementById('sensitivity-value-menu'));
+    document.getElementById('sensitivity-slider-menu').addEventListener('input', e => {
+      setSensitivity(Number(e.target.value));
+    });
+  } else if (tab === 'help'){
+    const rows = HELP_KEY_ROWS.map(([k, v]) => `<li><b>${k}</b><span>${v}</span></li>`).join('');
+    contentEl.innerHTML = `
+      <ul class="help-key-list">${rows}</ul>
+      <div class="help-note">※ このプロトタイプでは、サブウェポン・スペシャル・ロビーメニュー・マップは未実装です。</div>`;
+  }
+}
+document.querySelectorAll('#menu-overlay [data-menu-tab]').forEach(btn => {
+  btn.addEventListener('click', () => showMenuTab(btn.dataset.menuTab));
+});
+
+// カスタマイズオーバーレイ: ブキは現状スプラシューター1丁のみなので選択
+// UIではなく「選択中」表示に留め、感度スライダーだけを同期する。
+function refreshCustomizeOverlay(){
+  const listEl = document.getElementById('customize-weapon-list');
+  listEl.innerHTML = '';
+  const btn = document.createElement('button');
+  btn.className = 'weapon-pick-btn active';
+  btn.textContent = '● ' + WEAPON.name;
+  btn.disabled = true;
+  listEl.appendChild(btn);
+  syncSensitivityInput(document.getElementById('sensitivity-slider'), document.getElementById('sensitivity-value'));
+}
+
+function setSensitivity(v){
+  sensitivity = v;
+  syncSensitivityInput(document.getElementById('sensitivity-slider'), document.getElementById('sensitivity-value'));
+  const menuSlider = document.getElementById('sensitivity-slider-menu');
+  const menuValue = document.getElementById('sensitivity-value-menu');
+  if (menuSlider) syncSensitivityInput(menuSlider, menuValue);
+}
+function syncSensitivityInput(sliderEl, valueEl){
+  if (!sliderEl || !valueEl) return;
+  sliderEl.value = String(sensitivity);
+  valueEl.textContent = String(sensitivity);
+}
+document.getElementById('sensitivity-slider').addEventListener('input', e => {
+  setSensitivity(Number(e.target.value));
+});
+
+// 塗りリセット: 塗りキャンバス(coverageLayer/paintLayer)を初期状態へ戻し、
+// 塗りポイント集計・インク残量もリセットする(2D版のresetPaint()を移植)。
+function resetPaint(){
+  pctx.fillStyle = '#2a2d38';
+  pctx.fillRect(0, 0, MAP_SIZE_PX, MAP_SIZE_PX);
+  cctx.clearRect(0, 0, MAP_SIZE_PX, MAP_SIZE_PX);
+  paintTexture.needsUpdate = true;
+  totalPaintPoints = 0;
+  prevSampleMask.fill(false);
+  player.ink = player.maxInk;
+}
 
 // ==========================================================================
 // 加速度システム
@@ -1257,6 +1631,21 @@ function getTargetSpeedMPerS(firing){
     return isOnOwnInk() ? player.squidSpeedOnInk : player.squidSpeedOffInk;
   }
   return firing ? player.shootSpeed : player.humanSpeed;
+}
+
+// ジャンプ中の垂直方向の運動を、水平移動とは独立に積分する(単純な放物運動:
+// 初速JUMP_SPEED_MPS・重力GRAVITY_MPS2。空中制御の可否などは特に制限せず、
+// 水平方向のupdateMovement()内のロジックはジャンプ中もそのまま動く)。
+function updateJump(dt){
+  if (grounded) return;
+  vy -= GRAVITY_MPS2 * dt;
+  let ny = playerGroup.position.y + vy * dt;
+  if (ny <= 0){
+    ny = 0;
+    vy = 0;
+    grounded = true;
+  }
+  playerGroup.position.y = ny;
 }
 
 function updateMovement(dt, firing, actionState){
@@ -1310,6 +1699,8 @@ function updateMovement(dt, firing, actionState){
   // 壁でクランプされた軸は速度も止める(張り付いたまま速度だけ溜まるのを防止)。
   if (clamped.x !== nx) player.vx = 0;
   if (clamped.z !== nz) player.vz = 0;
+
+  updateJump(dt);
 }
 
 // ==========================================================================
@@ -1529,25 +1920,32 @@ function updateInk(dt, firing){
 // Main loop
 // ==========================================================================
 updateDummyHpUI();
+updatePointerLockPromptVisibility();
 let lastTime = performance.now();
 function loop(now){
   const dt = Math.min((now - lastTime) / 1000, 0.05);
   lastTime = now;
 
-  const firing = mouseDown && pointerLocked && form === 'human';
-  // メイン射撃中(firing)、またはサブ・スペシャルの構えモーション中に相当する
-  // Eキー長押し(throwAimHeld)のいずれかがtrueなら加速度が2倍になる状態。
-  const actionState = firing || throwAimHeld;
-  updateMovement(dt, firing, actionState);
-  updateWeapon(dt);
-  updateInk(dt, firing);
-  updateCamera(dt);
-  updatePlayerVisual();
-  updateReticle();
-  updateTargetReticle();
-  updateThrowPreview();
+  // オーバーレイが開いている間は「時が止まる」— 2Dプロトタイプと同じ仕様。
+  // render()自体(この関数の末尾のrenderer.render呼び出し)は引き続き
+  // 呼ばれるので、暗幕の下に直前のフレームが見え続ける。
+  if (activeOverlay === null){
+    const firing = mouseDown && pointerLocked && form === 'human';
+    // メイン射撃中(firing)、またはサブ・スペシャルの構えモーション中に相当する
+    // Eキー長押し(throwAimHeld)のいずれかがtrueなら加速度が2倍になる状態。
+    const actionState = firing || throwAimHeld;
+    updateMovement(dt, firing, actionState);
+    updateWeapon(dt);
+    updateInk(dt, firing);
+    updateCamera(dt);
+    updatePlayerVisual();
+    updateReticle();
+    updateTargetReticle();
+    updateThrowPreview();
+  }
+
   // 投擲構え中(throwAimHeld)は追尾レティクルを消し、弾道プレビューに切り替える。
-  document.getElementById('reticle').style.display = throwAimHeld ? 'none' : 'block';
+  document.getElementById('reticle').style.display = (throwAimHeld && activeOverlay === null) ? 'none' : 'block';
   document.getElementById('fov-state').textContent =
     `FOV: ${camera.fov.toFixed(1)}°(${throwAimHeld ? '投擲構え' : (form === 'squid' ? 'イカ状態' : 'ヒト状態')})`;
 
