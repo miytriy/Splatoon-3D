@@ -994,7 +994,10 @@ function sphereHitTest(point, cx, cz, baseY, hitbox, extraRadius){
 // showing) based on `form` and isOnOwnInk(). Also keeps the ink tank's
 // fill level and position in sync every frame.
 function updatePlayerVisual(){
-  const submerged = form === 'squid' && isOnOwnInk();
+  // 潜伏(見た目が消える)のは「自陣インク上」かつ「接地している」ときだけ。
+  // ジャンプ中(grounded===false)は、たとえ着地点が自陣インクの上でも
+  // 空中でインクに隠れるのはおかしいため、潜らせずイカの姿を出したままにする。
+  const submerged = form === 'squid' && grounded && isOnOwnInk();
   const showHuman = form === 'human';
   trunkMesh.visible = showHuman;
   capMesh.visible = showHuman;
