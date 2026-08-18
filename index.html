@@ -1343,14 +1343,24 @@ function updateTargetReticle(){
   }
 
   const dir = getAimDirection();
-  raycaster.set(camera.position, dir);
+  // 実際の弾は銃口(プレイヤー位置 + MUZZLE_HEIGHT)から発射される
+  // (fireShot()のorigin計算を参照)。以前はカメラ位置(プレイヤーの背後・
+  // 上方にオフセットされたTPSカメラ)からレイを飛ばしていたため、レイの
+  // 原点と実際の弾の発射元が一致しておらず、特に近距離で「オレンジの
+  // 対象レティクルが出る位置」と「実際に弾が当たる位置」がズレて見える
+  // 原因になっていた。レイの原点を弾の発射元と揃えることで、床・壁・
+  // 敵(userData.isEnemy)のどれに対しても同じ条件で、実際の着弾位置と
+  // 一致した位置に対象レティクルが出るようにする。
+  const muzzleOrigin = playerGroup.position.clone().add(new THREE.Vector3(0, MUZZLE_HEIGHT, 0));
+  raycaster.set(muzzleOrigin, dir);
   const hits = raycaster.intersectObjects(reticleRaycastTargets, false);
   const hit = hits.length ? hits[0] : null;
 
   const maxDist = linesToMeters(RETICLE_RESPONSE_RANGE_LINES);
-  // 反応射程はプレイヤー位置からの距離で判定する(カメラは背後にあるため、
-  // カメラ原点からの距離だとブキの実射程とズレるので補正)。
-  const inRange = hit && hit.point.distanceTo(playerGroup.position) <= maxDist;
+  // レイの原点を銃口(=弾の発射元)に揃えたので、ヒット距離(hit.distance)は
+  // そのまま弾の飛距離と一致する。以前の「プレイヤー位置からの距離で代用
+  // する」補正はもう不要(かつヒット点によっては誤差の原因になっていた)。
+  const inRange = hit && hit.distance <= maxDist;
 
   if (!inRange){
     targetReticleEl.style.display = 'none';
