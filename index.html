@@ -1059,8 +1059,17 @@ const PITCH_MIN = -1.2, PITCH_MAX = 0.9;
 let sensitivity = 5; // 1〜10。2Dプロトタイプのカスタマイズ画面と同じ考え方で、5を基準値にする。
 const MOUSE_SENSITIVITY_BASE = 0.0022; // 感度5(中央値)のときの基準値
 function currentMouseSensitivity(){ return MOUSE_SENSITIVITY_BASE * (sensitivity / 5); }
-const CAMERA_DISTANCE = 7.8;
-const CAMERA_HEIGHT = 3.4;
+// カメラの高さ・距離: プレイヤーを画面中央ではなく画面下部寄りに収める
+// (参考画像のような、リティクルは画面中央付近・キャラは画面下1/3程度、
+// というTPSの典型的なフレーミング)ための調整値。カメラをプレイヤーより
+// 高い位置に置いたまま同じ照準方向(dir)を向かせると、地面に近いプレイヤー
+// 自身は視界の下側へ寄る——これはカメラの「向き」(=照準/弾の方向、
+// 画面中央のレティクルと一致させる必要がある)を変えずに実現できる、
+// カメラの「位置」だけの調整である点がポイント。
+// CAMERA_HEIGHTを上げる/CAMERA_DISTANCEを縮めるほど、キャラは画面のより
+// 下・より大きく映る。逆に下げる/伸ばすほど画面中央寄りに戻る。
+const CAMERA_DISTANCE = 6.4;
+const CAMERA_HEIGHT = 4.1;
 
 // --------------------------------------------------------------------------
 // Aim direction: single source of truth for camera look direction, shot
