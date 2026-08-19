@@ -399,7 +399,7 @@ const WEAPON = {
   maxRangeLines: 2.7,
   fireIntervalSec: framesToSeconds(6),
   inkPerShot: 100 / 108,
-  speedDU: 22.66,
+  speedDU: 22, // 公式実測値(初速22DU/F、直進距離88DU=22×4Fと整合)。以前の22.66は誤りだったため修正。
   damageFalloff: { startFrame: 8, startDamage: 36.0, endFrame: 40, endDamage: 18.0, perFrameDecay: 0.5625 },
   spreadDeg: 4.86,
 
@@ -422,7 +422,8 @@ const WEAPON = {
   //   (G)自由落下時の空気抵抗 / (H)自由落下時の重力
   //
   // 数値の出典について:
-  //   (A)はダメージ計算などで既に使っているspeedDUと同じ値(実測に基づく確定値)。
+  //   (A)はダメージ計算などで既に使っているspeedDUと同じ値(実測に基づく確定値。
+  //   公式実測: 初速22DU/F、直進距離88DU=22DU/F×4Fと整合)。
   //   (H)と(G)は、スプラトゥーン3攻略Wikiの「システム詳細仕様」ページにある
   //   「(自由落下時の重力は)シューター種では全て0.016に設定されている」
   //   「(自由落下時の空気抵抗は)シューター種ではなぜか.52ガロンにのみ
@@ -438,14 +439,14 @@ const WEAPON = {
   //   他のロジックとは独立させてある。
   // ========================================================================
   ballistics: {
-    A_initialSpeedDU: 22.66,     // 確定値(=speedDUと同じ)
-    B_straightFrames: 4,         // 確定値(公式実測: 直進フレーム4F)
+    A_initialSpeedDU: 22,         // 確定値(=speedDUと同じ、公式実測: 初速22DU/F)
+    B_straightFrames: 4,         // 確定値(公式実測: 直進フレーム4F、直進距離88DU=22×4と整合)
     C_brakeMaxSpeedDU: 5.5,      // 【要検証・暫定】(A)よりかなり小さい値にしてある
     D_brakeDrag: 0.35,           // 【要検証・暫定】1Fごとに(1-D)倍
     E_brakeGravityDU: 0.05,      // 【要検証・暫定】DU/F²相当(Y速度から毎F減算)
     F_floorSpeedDU: { xz: 0.3, y: 0.3 }, // 【要検証・暫定】これを共に下回ると自由落下へ
     G_freefallDragDU: 0,         // シューター種共通の確定値(.52ガロン以外は0)
-    H_freefallGravityDU: 0.016,  // シューター種共通の確定値(DU/F²相当)
+    H_freefallGravityDU: 0.016,  // シューター種共通の確定値(DU/F²相当)。ユーザー提供データでも FreeGravity:0.016 として再確認済み。
   },
 
   // ========================================================================
