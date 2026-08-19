@@ -355,6 +355,24 @@
    (updatePlayerVisual 内)。これにより、grounded の更新タイミングに何らかの
    ズレが生じても、空中に浮いている間は必ずイカの姿が表示されるようにして
    ある。
+
+   塗り跡の発生起点(重要): 着弾塗り・軌跡塗り・足元塗りは、すべて実際に
+   空間内を移動する「物」(インクの弾のメッシュ、または落下中のインクの雫
+   =fallingInkDrops)が実際に床(y<=0)へ到達した"その位置"だけを起点に発生
+   する。以前は「射程(maxRangeLines)に達したら、まだ弾が空中にあっても
+   即着弾扱いにする」「発射地点⇔着弾地点を直線で結んで軌跡ドットを配置する」
+   「足元塗りをプレイヤーの現在XZ座標へ高さに関わらず即時発生させる」という、
+   見た目の物体(弾/プレイヤー)の実際の動きとは別に塗りだけが決まる実装
+   だったため、弾が"見た目だけ"のものになっていた。現在は:
+     - 着弾塗り: updateProjectiles内で弾が実際にnext.y<=0へ到達した瞬間、
+       その位置(y=0にクランプ)へ発生する(paintImpactSplat)。
+     - 軌跡塗り: 同じくupdateProjectiles内で、弾の実測飛行距離(p.traveled)
+       が一定間隔を超えるたびに、弾の"現在位置"p.posを起点にリアルタイムで
+       発生する(直線補間ではなく実際の弾道)。
+     - 足元塗り: spawnFallingInkDrop()で、プレイヤーの現在の3D座標・速度
+       (player.vx/vy/vz)を初速とする落下インクの雫を生成し、
+       updateFallingInkDrops()が毎フレーム重力で落下させ、実際にy<=0へ
+       到達した位置で発生する。プレイヤーが接地中なら従来通り即時発生する。
    ========================================================================== */
 
 // --------------------------------------------------------------------------
@@ -763,32 +781,9 @@ function shouldFootPaint(weapon, shotIndex){
   const avg = weapon.footPaintAvgInterval;
   return Math.floor(shotIndex / avg) > Math.floor((shotIndex - 1) / avg);
 }
-function midPaintDropsForShot(weapon, shotIndex){
-  if (weapon.midPaintAvgPerShot === undefined) return 0;
-  const avg = weapon.midPaintAvgPerShot;
-  return Math.floor(avg * shotIndex) - Math.floor(avg * (shotIndex - 1));
-}
-// 中間塗り: プレイヤー(発射地点)〜着弾点の間に固定パターンぶんのドロップを
-// 配置する。ワールド座標(メートル)で開始/終了点を受け取り、内部でmap-pxへ
-// 変換してから2D版と同じ間隔/個数ロジックで配置する。
-function paintMidDotsWorld(weapon, startWX, startWZ, endWX, endWZ, shotIndex){
-  if (weapon.midPaintIntervalLines === undefined) return;
-  const startX = worldToMapX(startWX), startY = worldToMapZ(startWZ);
-  const endX = worldToMapX(endWX), endY = worldToMapZ(endWZ);
-  const dx = endX - startX, dy = endY - startY;
-  const lenPx = Math.hypot(dx, dy);
-  if (lenPx < 1) return;
-  const ux = dx / lenPx, uy = dy / lenPx;
-  const intervalPx = mapLines(weapon.midPaintIntervalLines);
-  const maxByPattern = midPaintDropsForShot(weapon, shotIndex || 1);
-  const maxByDistance = Math.floor(lenPx / intervalPx);
-  const count = Math.min(maxByPattern, maxByDistance);
-  for (let i = 1; i <= count; i++){
-    const d = i * intervalPx;
-    if (d >= lenPx) break;
-    paintSplat(startX + ux * d, startY + uy * d, mapLines(weapon.midPaintRadiusLines));
-  }
-}
+// 旧: 中間塗り(発射地点⇔着弾地点を直線補間して配置する版)は撤去した。
+// 軌跡塗りは、下のupdateProjectiles内で弾の実際の飛行位置(p.pos、重力で
+// 曲がった実測の経路)を起点にリアルタイムで発生させる方式に置き換えている。
 
 // --------------------------------------------------------------------------
 // 塗りポイントの集計(2D版と同じ「ダウンサンプル+前回マスクとの差分」方式)。
@@ -1023,6 +1018,46 @@ function updatePlayerVisual(){
       playerGroup.position.z
     );
     inkTank.fillGroup.scale.y = Math.max(0.001, player.ink / player.maxInk);
+  }
+}
+
+// ==========================================================================
+// 足元塗り用の落下インクドロップ
+// --------------------------------------------------------------------------
+// 着弾塗り・軌跡塗り・足元塗りは、すべて実際に空間内を移動する「物」
+// (インクの弾、またはここで定義する落下中のインクの雫)が実際に床(y<=0)へ
+// 到達した位置を起点として発生させる。足元塗りは、プレイヤーが空中にいる
+// 間にトリガーされた場合、プレイヤーの「その時点の座標」からインクの雫が
+// 生まれ、プレイヤーの現在の速度(水平・垂直とも)を初速として重力
+// (GRAVITY_MPS2)の影響だけを受けながら落下し、実際に床へ着地した位置へ
+// 塗りが発生する(空気抵抗は考慮しない単純な放物運動)。プレイヤーが接地
+// している場合は、従来通りその場で即座に塗りが発生する。
+// ==========================================================================
+const fallingInkDrops = [];
+function spawnFallingInkDrop(x, y, z, vx, vy0, vz, radiusLines){
+  if (y <= AIRBORNE_EPS){
+    // 既に地面にいるので即着地(従来通り、その場で即時発生)。
+    paintSplatAtWorld(x, z, radiusLines);
+    return;
+  }
+  fallingInkDrops.push({ x, y, z, vx, vy: vy0, vz, radiusLines, alive: true });
+}
+function updateFallingInkDrops(dt){
+  for (const d of fallingInkDrops){
+    if (!d.alive) continue;
+    d.vy -= GRAVITY_MPS2 * dt;
+    const nx = d.x + d.vx * dt;
+    const ny = d.y + d.vy * dt;
+    const nz = d.z + d.vz * dt;
+    if (ny <= 0){
+      paintSplatAtWorld(nx, nz, d.radiusLines);
+      d.alive = false;
+    } else {
+      d.x = nx; d.y = ny; d.z = nz;
+    }
+  }
+  for (let i = fallingInkDrops.length - 1; i >= 0; i--){
+    if (!fallingInkDrops[i].alive) fallingInkDrops.splice(i, 1);
   }
 }
 
@@ -1780,8 +1815,15 @@ function fireShot(){
 
   burstShotCount++;
   // 足元塗り: 発数ベースの固定パターンで発生(2D版shouldFootPaint()と同じロジック)。
+  // プレイヤーが空中にいる場合は、その時点の座標・速度から落下するインクの
+  // 雫として発生させ、実際に床へ着地した位置に塗りが生まれるようにする
+  // (spawnFallingInkDrop参照)。接地中は従来通りその場で即時発生する。
   if (shouldFootPaint(WEAPON, burstShotCount)){
-    paintSplatAtWorld(playerGroup.position.x, playerGroup.position.z, WEAPON.footPaintRadiusLines);
+    spawnFallingInkDrop(
+      playerGroup.position.x, playerGroup.position.y, playerGroup.position.z,
+      player.vx, vy, player.vz,
+      WEAPON.footPaintRadiusLines
+    );
   }
 
   projectiles.push({
@@ -1790,12 +1832,12 @@ function fireShot(){
     vel,                 // 現在の速度ベクトル(m/s)。フェーズに応じて毎F変化する。
     phase: 'straight',   // 'straight' → 'brake' → 'freefall'
     traveled: 0,
-    range: linesToMeters(WEAPON.maxRangeLines),
+    trailPaintedAt: 0,   // 軌跡塗りを最後に発生させた時点のtraveled距離(m)
     frameCount: 0,
     alive: true,
-    startX: origin.x, startZ: origin.z,     // 中間塗りの経路計算用(発射地点)
+    startX: origin.x, startZ: origin.z,     // (デバッグ/将来利用のため保持)発射地点
     dirAngleXZ: Math.atan2(dir.z, dir.x),   // 着弾塗りの伸び方向(XZ平面上の角度)
-    burstShotIndex: burstShotCount,         // 中間塗りの発数パターン用
+    burstShotIndex: burstShotCount,
   });
 }
 
@@ -1807,7 +1849,9 @@ function paintImpactSplat(p, landPos){
   const radiusLines = getSplatRadiusLines(WEAPON, traveledLines);
   const stretchRatio = getStretchRatio(WEAPON, traveledLines);
   paintSplatStretchedAtWorld(landPos.x, landPos.z, radiusLines, p.dirAngleXZ, stretchRatio);
-  paintMidDotsWorld(WEAPON, p.startX, p.startZ, landPos.x, landPos.z, p.burstShotIndex);
+  // 軌跡塗り(経路上のドット)は弾の飛行中にリアルタイムで発生済み
+  // (updateProjectiles内、実際の位置p.posを起点に発生させている)ため、
+  // ここでは着弾塗り本体のぶんだけ塗りポイントを加算すればよい。
   creditCappedPaintPoints(WEAPON.singleShotPaintPoints);
 }
 
@@ -1895,8 +1939,16 @@ function updateProjectiles(dt){
       const hitDummy = dummy.hp > 0 && capsuleHitTest(
         next, dummy.position.x, dummy.position.z, 0, HUMAN_HITBOX, 0.05 /* 弾自体の半径ぶんの余白 */
       );
-      const outOfRange = p.traveled >= p.range;
-      const outOfBounds = Math.abs(next.x) > WALL_HALF || Math.abs(next.z) > WALL_HALF || next.y < 0 || next.y > 8;
+      // 着弾塗りは「実際に床(y<=0)へ到達した瞬間」だけを起点にする
+      // (以前あった「射程(maxRangeLines)に達したら、まだ空中にいても即着弾
+      // 扱いにする」処理は撤去した — 見た目の弾がまだ浮いているのに塗りだけ
+      // 先に発生してしまう不整合の原因だったため)。
+      const hitFloor = next.y <= 0;
+      // アリーナの外(水平方向)へ抜けた、または想定外に高く飛び続けた場合は、
+      // 塗りを発生させずに消える(射撃レンジの外なので塗りキャンバス上でも
+      // 扱いようがない)。
+      const leftArena = Math.abs(next.x) > WALL_HALF || Math.abs(next.z) > WALL_HALF || next.y > 8;
+      const expired = p.frameCount > FPS * 5; // 安全装置: 約5秒で強制消滅(塗りなし)
 
       if (hitDummy){
         const dmg = getShotDamage(p.frameCount);
@@ -1910,13 +1962,32 @@ function updateProjectiles(dt){
         paintImpactSplat(p, next);
         scene.remove(p.mesh);
         p.alive = false;
-      } else if (outOfRange || outOfBounds){
-        paintImpactSplat(p, next);
+      } else if (hitFloor){
+        const landPos = next.clone();
+        landPos.y = 0; // 塗りキャンバスは高さを持たないため、床面(y=0)に固定する
+        paintImpactSplat(p, landPos);
+        scene.remove(p.mesh);
+        p.alive = false;
+      } else if (leftArena || expired){
+        // 床に触れないまま消える場合は塗りを発生させない。
         scene.remove(p.mesh);
         p.alive = false;
       } else {
         p.pos.copy(next);
         p.mesh.position.copy(next);
+
+        // 軌跡塗り: 弾本体(見た目のメッシュと同じp.pos)を起点に、実際に
+        // 重力で曲がりながら進んだ経路距離(p.traveled、直線補間ではなく
+        // 実測の飛行距離)が一定間隔を超えるたびに、その"現在位置"へ塗りを
+        // 発生させる。弾が実際にいる場所と塗りの発生位置が常に一致する。
+        if (WEAPON.midPaintIntervalLines !== undefined){
+          const intervalM = linesToMeters(WEAPON.midPaintIntervalLines);
+          while (p.traveled - p.trailPaintedAt >= intervalM){
+            p.trailPaintedAt += intervalM;
+            paintSplatAtWorld(p.pos.x, p.pos.z, WEAPON.midPaintRadiusLines);
+          }
+        }
+
         if (isFrameBoundary){
           p.frameCount++;
           advanceProjectileVelocityOneFrame(p);
@@ -1971,6 +2042,7 @@ function loop(now){
     const actionState = firing || throwAimHeld;
     updateMovement(dt, firing, actionState);
     updateWeapon(dt);
+    updateFallingInkDrops(dt);
     updateInk(dt, firing);
     updateCamera(dt);
     updatePlayerVisual();
