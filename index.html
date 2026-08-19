@@ -349,6 +349,12 @@
    38°) are set directly, with a smooth lerp between states. squid form and
    投擲構え are stubbed as FOV-only states for now (right-click / E key)
    since the underlying mechanics aren't ported yet.
+
+   潜伏(見た目が消える)状態は「自陣インク上」かつ「地面に接している」時
+   のみで、grounded フラグに加えて実際のプレイヤーY座標も二重チェックする
+   (updatePlayerVisual 内)。これにより、grounded の更新タイミングに何らかの
+   ズレが生じても、空中に浮いている間は必ずイカの姿が表示されるようにして
+   ある。
    ========================================================================== */
 
 // --------------------------------------------------------------------------
@@ -993,11 +999,16 @@ function sphereHitTest(point, cx, cz, baseY, hitbox, extraRadius){
 // fully-submerged look (both models hidden, only the ink puddle + tank UI
 // showing) based on `form` and isOnOwnInk(). Also keeps the ink tank's
 // fill level and position in sync every frame.
+//
+// 潜伏(見た目が消える)状態は「自陣インク上」かつ「地面に接している」時
+// のみに限定する。grounded フラグは keydown(space)/updateJump 側で正しく
+// 更新される想定だが、念のため実際のプレイヤーY座標(playerGroup.position.y)
+// も AIRBORNE_EPS 以下であることを二重にチェックし、ジャンプ中に誤って
+// 潜伏扱い(見た目が消えたまま)になることを防ぐ。
+const AIRBORNE_EPS = 0.01; // これを超えて浮いていたら「空中」とみなす閾値(m)
 function updatePlayerVisual(){
-  // 潜伏(見た目が消える)のは「自陣インク上」かつ「接地している」ときだけ。
-  // ジャンプ中(grounded===false)は、たとえ着地点が自陣インクの上でも
-  // 空中でインクに隠れるのはおかしいため、潜らせずイカの姿を出したままにする。
-  const submerged = form === 'squid' && grounded && isOnOwnInk();
+  const isActuallyGrounded = grounded && playerGroup.position.y <= AIRBORNE_EPS;
+  const submerged = form === 'squid' && isActuallyGrounded && isOnOwnInk();
   const showHuman = form === 'human';
   trunkMesh.visible = showHuman;
   capMesh.visible = showHuman;
@@ -1971,7 +1982,7 @@ function loop(now){
   // 投擲構え中(throwAimHeld)は追尾レティクルを消し、弾道プレビューに切り替える。
   document.getElementById('reticle').style.display = (throwAimHeld && activeOverlay === null) ? 'none' : 'block';
   document.getElementById('fov-state').textContent =
-    `FOV: ${camera.fov.toFixed(1)}°(${throwAimHeld ? '投擲構え' : (form === 'squid' ? 'イカ状態' : 'ヒト状態')})`;
+    `FOV: ${camera.fov.toFixed(1)}°(${throwAimHeld ? '投擲構え' : (form === 'squid' ? 'イカ状態' : 'ヒト状態')}) / grounded:${grounded} / y:${playerGroup.position.y.toFixed(2)}`;
 
   // 塗りキャンバスの内容をGPUテクスチャへ反映し、塗りポイントのHUD表示を更新する。
   paintTexture.needsUpdate = true;
