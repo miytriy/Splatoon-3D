@@ -428,7 +428,8 @@ const WEAPON = {
   //   「(自由落下時の空気抵抗は)シューター種ではなぜか.52ガロンにのみ
   //   パラメータが存在し0.02となっている(=他シューターは0)」という記述に
   //   基づく、シューター種共通の確定(に近い)値。
-  //   (B)(C)(D)(E)(F)はスプラシューター個別の実測データが見つからなかった
+  //   (B)は公式実測値(直進フレーム4F)が判明したため確定値に更新済み。
+  //   (C)(D)(E)(F)はスプラシューター個別の実測データが見つからなかった
   //   ため、【要検証】の暫定値。同Wikiの定性的な記述
   //   (「シューター種は(A)に対して(C)が総じて小さく、ブレーキ状態になると
   //   極端に減速する」「実測ではシューター系の弾はブレーキ開始から4F程度で
@@ -438,7 +439,7 @@ const WEAPON = {
   // ========================================================================
   ballistics: {
     A_initialSpeedDU: 22.66,     // 確定値(=speedDUと同じ)
-    B_straightFrames: 8,         // 【要検証・暫定】
+    B_straightFrames: 4,         // 確定値(公式実測: 直進フレーム4F)
     C_brakeMaxSpeedDU: 5.5,      // 【要検証・暫定】(A)よりかなり小さい値にしてある
     D_brakeDrag: 0.35,           // 【要検証・暫定】1Fごとに(1-D)倍
     E_brakeGravityDU: 0.05,      // 【要検証・暫定】DU/F²相当(Y速度から毎F減算)
@@ -446,6 +447,44 @@ const WEAPON = {
     G_freefallDragDU: 0,         // シューター種共通の確定値(.52ガロン以外は0)
     H_freefallGravityDU: 0.016,  // シューター種共通の確定値(DU/F²相当)
   },
+
+  // ========================================================================
+  // 射撃前隙・射撃後隙・インク回復不能時間(公式実測値)
+  // ========================================================================
+  startupFramesHuman: 2,   // 射撃前隙(ヒト): 2F
+  startupFramesSquid: 10,  // 射撃前隙(イカ→ヒト即撃ち): 10F
+  postFireLockFrames: 4,   // 射撃後隙: 4F(この間、イカ状態への変形・サブ構えを禁止)
+  inkRegenLockoutFrames: 20, // インク回復不能時間: 20F(最終発射から自然回復が始まるまでの猶予)
+  shootMoveSpeedDU: 0.72,  // 射撃時ヒト速: 0.72DU/F(公式実測。以前はプレースホルダーの2.6m/s固定だった)
+
+  // ========================================================================
+  // 拡散・連射精度補正(公式実測値)
+  // --------------------------------------------------------------------------
+  // Splatoonの「連射精度補正」は、撃ち続けるほど拡散が悪化し(補正悪化量ずつ
+  // 蓄積、最大値で頭打ち)、撃つのをやめると一定レートで回復する、という
+  // スタック式のモデル。ここでは以下のように単純化して実装する(コード内
+  // currentCorrectionDeg として毎フレーム更新):
+  //   ・1発撃つごとに correctionGrowthPerShotDeg を加算(最大 maxCorrectionDeg まで)。
+  //     1発目は initialCorrectionDeg から始まる。
+  //   ・撃っていない間は毎フレーム recoveryPerFrameDeg ずつ減算(0が下限)。
+  //   ・実際に使う拡散角 = (接地時はWEAPON.spreadDeg / 空中はjumpSpreadDeg)
+  //     + currentCorrectionDeg + (空中時のみ jumpShotCorrectionDeg を追加)。
+  // 正式な計算式(初弾補正のかかり方や最低補正への収束式など)は攻略Wiki等の
+  // 更に詳細な仕様に基づくため、ここでは公式実測値をなるべく素直に反映した
+  // 近似モデルである点に留意。
+  // ========================================================================
+  jumpSpreadDeg: 11.66,            // ジャンプ中拡散
+  jumpShotCorrectionDeg: 4.664,    // ジャンプ撃ち補正(空中発射時に追加される拡散)
+  initialCorrectionDeg: 0.0486,    // 初弾補正
+  correctionGrowthPerShotDeg: 0.0486, // 補正悪化量(1発ごと)
+  maxCorrectionDeg: 1.215,         // 最低補正(=補正の最大到達値。144F撃ち続けた時点の値)
+  correctionRecoveryPerFrameDeg: 0.0729, // 補正回復量(1Fごと、撃っていない間)
+
+  // ========================================================================
+  // 弾の当たり判定サイズ(公式実測値、単位はDU=直径)
+  // ========================================================================
+  bulletDiameterEnemyDU: 0.114,   // 弾の大きさ(敵): イカ・タコ/オブジェクトへの当たり判定
+  bulletDiameterTerrainDU: 0.08,  // 弾の大きさ(地形): 地形への当たり判定
 };
 
 // (B)(C)(D)(E)(F)(G)(H) をm/s・m/s²系へ変換した実働定数。DU/F系の生値は
@@ -465,12 +504,16 @@ const BALLISTICS_MPS = (() => {
   };
 })();
 
+// 弾の当たり判定半径(m)。公式値は直径(DU)なので ÷2 して半径にし、
+// DU_PER_METER で割って m 単位へ変換する。
+const BULLET_RADIUS_ENEMY_M = (WEAPON.bulletDiameterEnemyDU / 2) / DU_PER_METER;
+const BULLET_RADIUS_TERRAIN_M = (WEAPON.bulletDiameterTerrainDU / 2) / DU_PER_METER;
+
 // 「レティクル反応射程」— 実際の弾の飛距離/ダメージ射程(maxRangeLines)とは
 // 別の概念。照準を合わせた際に対象レティクル(オレンジの◯/◯+×)が
-// 表示されるかどうかだけを決める判定距離で、公式の分離データが無いため
-// 現状は暫定的にmaxRangeLinesと同値にしている(将来、実測値が分かれば
-// ここだけ独立して調整する)。
-const RETICLE_RESPONSE_RANGE_LINES = WEAPON.maxRangeLines;
+// 表示されるかどうかだけを決める判定距離で、公式実測値(レティクル反応射程
+// 2.4ライン)が判明したため、それを直接使う。
+const RETICLE_RESPONSE_RANGE_LINES = 2.4;
 
 // ==========================================================================
 // 移動速度テーブル (DU/フレーム) — ブキ重量ごとの実データ。
@@ -502,7 +545,7 @@ const player = {
   humanSpeed: duPerFrameToMPerSec(HUMAN_SPEED_DU_PER_F[WEAPON.weightClass]),
   squidSpeedOnInk: duPerFrameToMPerSec(SQUID_SPEED_ON_INK_DU_PER_F[WEAPON.weightClass]),
   squidSpeedOffInk: duPerFrameToMPerSec(SQUID_SPEED_OFF_INK_DU_PER_F),
-  shootSpeed: 2.6,  // m/s while firing — 公式テーブルに射撃中速度の値は含まれないため、2Dプロトタイプ踏襲の暫定値のまま
+  shootSpeed: duPerFrameToMPerSec(WEAPON.shootMoveSpeedDU),  // 射撃時ヒト速(公式実測 0.72DU/F)。以前の2.6m/s固定プレースホルダーから更新。
 };
 
 // ==========================================================================
@@ -1284,7 +1327,9 @@ window.addEventListener('keydown', e => {
 
   if (k in keys) keys[k] = true;
   if (e.key === 'Shift') aimLocked = true;
-  if (k === 'e') throwAimHeld = true;
+  // 射撃後隙(postFireLockUntil)の間は投擲構え(サブウェポンの構えモーション
+  // に相当)へ移行できない(公式仕様)。
+  if (k === 'e' && performance.now() >= postFireLockUntil) throwAimHeld = true;
   if (k === ' '){
     e.preventDefault(); // ブラウザのページスクロールを防ぐ
     // イカ状態でもジャンプできるようにする(スプラトゥーンのイカロールを
@@ -1343,13 +1388,26 @@ const RETICLE_LINE_HALF = 7; // .reticle-line の長辺の半分(px)。中心か
 const RETICLE_MIN_OFFSET = 9;   // 拡散角が非常に小さくても最低限これだけ中心から離す
 const RETICLE_MAX_OFFSET = 160; // 画面外まで広がらないようにクランプ
 
+// 現在の連射精度補正(度)。fireShot()で1発ごとに加算され、非射撃中は
+// 毎フレーム回復する(下のupdateFiringAccuracyState参照)。
+let currentCorrectionDeg = 0;
+
+function getCurrentEffectiveSpreadDeg(){
+  const baseSpread = grounded ? WEAPON.spreadDeg : WEAPON.jumpSpreadDeg;
+  const jumpExtra = grounded ? 0 : WEAPON.jumpShotCorrectionDeg;
+  return baseSpread + currentCorrectionDeg + jumpExtra;
+}
+
 function updateReticle(){
   const cx = window.innerWidth / 2;
   const cy = window.innerHeight / 2;
 
   // 拡散は角度の半値(±spreadDeg/2)が実際の最大ブレ幅なので、その半値を
   // 現在のFOVの半値との比でスクリーン縦半分(px)に投影する。
-  const halfSpreadRad = (WEAPON.spreadDeg / 2) * Math.PI / 180;
+  // 連射精度補正(currentCorrectionDeg)・ジャンプ中拡散/ジャンプ撃ち補正も
+  // 加味した「現在実際に使われる拡散角」を反映する。
+  const effectiveSpreadDeg = getCurrentEffectiveSpreadDeg();
+  const halfSpreadRad = (effectiveSpreadDeg / 2) * Math.PI / 180;
   const halfFovRad = camera.fov * Math.PI / 360;
   const rawOffset = (Math.tan(halfSpreadRad) / Math.tan(halfFovRad)) * cy;
   const offset = Math.max(RETICLE_MIN_OFFSET, Math.min(RETICLE_MAX_OFFSET, rawOffset)) + RETICLE_LINE_HALF;
@@ -1498,19 +1556,42 @@ function updateThrowPreview(){
 renderer.domElement.addEventListener('mousedown', e => {
   if (activeOverlay !== null) return; // オーバーレイ表示中はゲーム内クリックを無視する
   if (!pointerLocked){ renderer.domElement.requestPointerLock(); return; }
-  if (e.button === 0) mouseDown = true;
+  if (e.button === 0){
+    // 射撃後隙は「発射後にイカ状態へ変形/サブウェポンを使えるようになるまで
+    // の時間」であり、連射自体を妨げるものではないため、ここでは新しい
+    // バーストの開始をブロックしない(ブロック対象はupdateSquidFormLock()の
+    // イカ変形リクエストと、下記keydown('e')の投擲構えのみ)。
+    if (!mouseDown){
+      // トリガーを新しく引いた瞬間: 射撃前隙(ヒト/イカ)を計算し直す。
+      // イカ状態から直接発射することはできない仕様(updateWeapon側の
+      // form==='human'チェック)だが、「直前までイカ状態だった」場合は
+      // イカ→ヒト遷移の前隙(10F)を適用する(wasSquidRecentlyForStartupで判定)。
+      firingWindupStartAt = performance.now();
+      firingWindupFrames = wasSquidRecentlyForStartup ? WEAPON.startupFramesSquid : WEAPON.startupFramesHuman;
+      firstShotOfBurstFired = false;
+    }
+    mouseDown = true;
+  }
   // イカ状態: 右クリック長押しの間、姿とFOV(60°)を切り替える。自陣インクの
   // 上ならインクの中に潜った見た目になる(isOnOwnInk()参照、coverageLayerの
   // 実データを参照)。泳ぐ速度変化・急速回復は下記updateMovement/updateInkで
-  // 実際に反映される。
-  if (e.button === 2) form = 'squid';
+  // 実際に反映される。射撃後隙(postFireLockUntil)の間は実際の変形を保留する
+  // ため、ここではリクエストのフラグだけを立て、実反映はupdateSquidFormLock()
+  // に任せる。
+  if (e.button === 2) squidFormRequested = true;
 });
 window.addEventListener('mouseup', e => {
   if (e.button === 0){
+    if (mouseDown){
+      // トリガーを離した瞬間: 射撃後隙(postFireLockFrames)を発生させる。
+      // これが有効な間は、イカ状態への変形(右クリック)・投擲構え(E)を
+      // updateSquidFormLock()/updateThrowAimLock()側でブロックする。
+      postFireLockUntil = performance.now() + framesToSeconds(WEAPON.postFireLockFrames) * 1000;
+    }
     mouseDown = false;
     burstShotCount = 0; // トリガーを離したら足元塗り・中間塗りのパターンをリセット
   }
-  if (e.button === 2) form = 'human';
+  if (e.button === 2) squidFormRequested = false;
 });
 renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
 
@@ -1788,11 +1869,28 @@ const projMat = new THREE.MeshBasicMaterial({ color: 0xffd8c2 });
 let lastShotAt = 0;
 let burstShotCount = 0; // マウス押しっぱなしの間の発射数(足元塗り・中間塗りのパターン管理用)
 
+// ---- 射撃前隙・射撃後隙・イカ→ヒト前隙判定・連射精度補正まわりの状態 ----
+let firingWindupStartAt = 0;   // 現在のトリガー押下(バースト)が始まった時刻(performance.now())
+let firingWindupFrames = 0;    // このバーストに適用される前隙フレーム数(2F or 10F)
+let firstShotOfBurstFired = false; // このバーストの最初の1発をまだ前隙待ちの上で撃っていないか
+let postFireLockUntil = 0;     // この時刻(performance.now())まで、イカ変形/投擲構えを禁止(射撃後隙)
+let wasSquidRecentlyForStartup = false; // 直前フレームでイカ状態だったか(トリガーを引いた瞬間の前隙判定用)
+
 function fireShot(){
   if (player.ink < WEAPON.inkPerShot) return;
   player.ink -= WEAPON.inkPerShot;
+  lastShotAt = performance.now();
 
-  const spread = (Math.random() - 0.5) * WEAPON.spreadDeg * Math.PI / 180;
+  // 連射精度補正: 1発ごとに悪化量を加算(初弾は0.0486°から開始、最大1.215°で頭打ち)。
+  currentCorrectionDeg = Math.min(
+    WEAPON.maxCorrectionDeg,
+    currentCorrectionDeg > 0
+      ? currentCorrectionDeg + WEAPON.correctionGrowthPerShotDeg
+      : WEAPON.initialCorrectionDeg
+  );
+
+  const effectiveSpreadDeg = getCurrentEffectiveSpreadDeg();
+  const spread = (Math.random() - 0.5) * effectiveSpreadDeg * Math.PI / 180;
   const angle = yaw + spread;
   // Same aim-direction convention as the camera (getAimDirection()), so
   // shots always travel exactly where the crosshair/camera is pointing.
@@ -1934,16 +2032,19 @@ function updateProjectiles(dt){
       p.traveled += moveVec.length();
 
       // ヒト状態の当たり判定カプセル(直径0.7m×高さ1.65m)で練習用ダミーへの
-      // ヒットを判定する。以前の単純な円距離判定より正確(縦方向の判定も
-      // カプセル形状に基づく)。
+      // ヒットを判定する。弾自体の当たり判定サイズは公式実測値(弾の大きさ
+      // (敵):0.114DU=直径)をBULLET_RADIUS_ENEMY_Mへ変換して使用する
+      // (以前は0.05mの仮置き値だった)。
       const hitDummy = dummy.hp > 0 && capsuleHitTest(
-        next, dummy.position.x, dummy.position.z, 0, HUMAN_HITBOX, 0.05 /* 弾自体の半径ぶんの余白 */
+        next, dummy.position.x, dummy.position.z, 0, HUMAN_HITBOX, BULLET_RADIUS_ENEMY_M
       );
       // 着弾塗りは「実際に床(y<=0)へ到達した瞬間」だけを起点にする
       // (以前あった「射程(maxRangeLines)に達したら、まだ空中にいても即着弾
       // 扱いにする」処理は撤去した — 見た目の弾がまだ浮いているのに塗りだけ
-      // 先に発生してしまう不整合の原因だったため)。
-      const hitFloor = next.y <= 0;
+      // 先に発生してしまう不整合の原因だったため)。地形への当たり判定サイズ
+      // (公式実測: 弾の大きさ(地形)0.08DU=直径 → BULLET_RADIUS_TERRAIN_M)を
+      // 見込んで、半径ぶん早めに着地とみなす。
+      const hitFloor = next.y <= BULLET_RADIUS_TERRAIN_M;
       // アリーナの外(水平方向)へ抜けた、または想定外に高く飛び続けた場合は、
       // 塗りを発生させずに消える(射撃レンジの外なので塗りキャンバス上でも
       // 扱いようがない)。
@@ -2001,25 +2102,66 @@ function updateProjectiles(dt){
   }
 }
 
-function updateWeapon(dt){
+// 連射精度補正の毎フレーム更新: 撃っていない間、回復量(0.0729°/F)ずつ
+// currentCorrectionDegを0まで減らしていく(公式実測値: 22Fで全回復)。
+function updateFiringAccuracyState(firing){
+  if (!firing && currentCorrectionDeg > 0){
+    currentCorrectionDeg = Math.max(0, currentCorrectionDeg - WEAPON.correctionRecoveryPerFrameDeg);
+  }
+}
+
+function updateWeapon(dt, firing){
+  updateFiringAccuracyState(firing);
+
   const now = performance.now();
   // イカ状態では発射不可(2Dプロトタイプと同じ制約)。
-  if (mouseDown && pointerLocked && form === 'human' && now - lastShotAt >= WEAPON.fireIntervalSec * 1000){
-    lastShotAt = now;
-    fireShot();
+  if (mouseDown && pointerLocked && form === 'human'){
+    if (!firstShotOfBurstFired){
+      // このバーストの最初の1発は、射撃前隙(firingWindupFrames)が
+      // 経過するまで待つ(ヒト状態2F / イカ→ヒト遷移直後10F)。
+      if (now - firingWindupStartAt >= framesToSeconds(firingWindupFrames) * 1000){
+        firstShotOfBurstFired = true;
+        fireShot(); // fireShot()内でlastShotAtが更新されるので、以降は連射F間隔のチェックがそのまま効く
+      }
+    } else if (now - lastShotAt >= WEAPON.fireIntervalSec * 1000){
+      fireShot();
+    }
   }
   updateProjectiles(dt);
 }
 
 function updateInk(dt, firing){
-  // インク回復不能時間は今回は簡略化し、発射していない間は常に回復する。
-  // イカ状態かつ自陣インク上のときだけ急速回復(2D版のswimRegenRateを移植)。
+  // インク回復不能時間(20F): 最後に発射してから一定時間が経過するまでは
+  // 自然回復が始まらない(公式実測値。以前は簡略化して発射していない間は
+  // 常に回復する扱いだった)。
   if (!firing){
-    const rapid = form === 'squid' && isOnOwnInk();
-    const rate = rapid ? player.swimRegenRate : player.regenRate;
-    player.ink = Math.min(player.maxInk, player.ink + rate * dt);
+    const now = performance.now();
+    const lockoutMs = framesToSeconds(WEAPON.inkRegenLockoutFrames) * 1000;
+    if (now - lastShotAt >= lockoutMs){
+      const rapid = form === 'squid' && isOnOwnInk();
+      const rate = rapid ? player.swimRegenRate : player.regenRate;
+      player.ink = Math.min(player.maxInk, player.ink + rate * dt);
+    }
   }
   document.getElementById('ink-gauge-inner').style.width = (player.ink / player.maxInk * 100) + '%';
+}
+
+// 射撃後隙(postFireLockUntil)の間は、イカ状態への変形リクエスト(右クリック)を
+// 実際には保留し、後隙が明けた瞬間に反映する。squidFormRequested は
+// mousedown/mouseupハンドラで更新される「プレイヤーが右クリックを押しているか」
+// の生の入力状態で、実際のform変数はこの関数経由でのみ更新する。
+let squidFormRequested = false;
+function updateSquidFormLock(){
+  const now = performance.now();
+  const locked = now < postFireLockUntil;
+  if (squidFormRequested && !locked){
+    form = 'squid';
+  } else if (!squidFormRequested){
+    form = 'human';
+  }
+  // 直前フレームがイカ状態だったかを記録しておく(次にトリガーを引いた瞬間の
+  // 射撃前隙10F判定=wasSquidRecentlyForStartupで使用)。
+  wasSquidRecentlyForStartup = (form === 'squid');
 }
 
 // ==========================================================================
@@ -2040,8 +2182,9 @@ function loop(now){
     // メイン射撃中(firing)、またはサブ・スペシャルの構えモーション中に相当する
     // Eキー長押し(throwAimHeld)のいずれかがtrueなら加速度が2倍になる状態。
     const actionState = firing || throwAimHeld;
+    updateSquidFormLock();
     updateMovement(dt, firing, actionState);
-    updateWeapon(dt);
+    updateWeapon(dt, firing);
     updateFallingInkDrops(dt);
     updateInk(dt, firing);
     updateCamera(dt);
