@@ -2045,6 +2045,17 @@ function updateProjectiles(dt){
       // (公式実測: 弾の大きさ(地形)0.08DU=直径 → BULLET_RADIUS_TERRAIN_M)を
       // 見込んで、半径ぶん早めに着地とみなす。
       const hitFloor = next.y <= BULLET_RADIUS_TERRAIN_M;
+      // 射程ハードキャップ(公式実測: カス当たり射程2.7ライン=13.5m)。
+      // 減速・自由落下フェーズの係数(C)(D)(E)(F)は依然【要検証・暫定】であり、
+      // 特に水平〜やや上向きの射撃では自由落下時の重力が弱すぎて弾がほぼ
+      // 水平のまま飛び続け、着弾までの距離が仕様上ありえない長さ(10m台後半〜)
+      // になってしまう問題があった。正確な弾道係数が判明するまでの実用的な
+      // 対策として、実測済みの「カス当たり射程」を絶対的な飛距離上限として
+      // 課し、それを超えた瞬間その場(y=0)へ強制着弾させる。
+      // ※本来カス当たり射程は「ジャンプせずに届く最大距離」の定義だが、この
+      // プロトタイプではジャンプ中も含め一律の上限として簡易的に適用している。
+      const MAX_RANGE_M = linesToMeters(WEAPON.maxRangeLines);
+      const rangeCapped = p.traveled >= MAX_RANGE_M;
       // アリーナの外(水平方向)へ抜けた、または想定外に高く飛び続けた場合は、
       // 塗りを発生させずに消える(射撃レンジの外なので塗りキャンバス上でも
       // 扱いようがない)。
@@ -2066,6 +2077,14 @@ function updateProjectiles(dt){
       } else if (hitFloor){
         const landPos = next.clone();
         landPos.y = 0; // 塗りキャンバスは高さを持たないため、床面(y=0)に固定する
+        paintImpactSplat(p, landPos);
+        scene.remove(p.mesh);
+        p.alive = false;
+      } else if (rangeCapped){
+        // カス当たり射程に到達: まだ空中に浮いていても、その場(現在のXZ位置・
+        // y=0)へ強制着弾させる。
+        const landPos = next.clone();
+        landPos.y = 0;
         paintImpactSplat(p, landPos);
         scene.remove(p.mesh);
         p.alive = false;
