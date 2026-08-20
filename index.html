@@ -1097,6 +1097,23 @@ function capsuleHitTest(point, cx, cz, baseY, hitbox, extraRadius){
   return (dx * dx + dy * dy + dz * dz) <= rr * rr;
 }
 
+// pointの位置における、同じ縦向きカプセルの「表面の外向き法線」を返す。
+// カプセル中心軸上の最近点(capsuleHitTestのclampedYと同じ考え方)からpoint
+// への方向を正規化したもので、円柱部分では水平な放射方向、上下の半球
+// キャップ部分では斜め上/下を含む向きになる。着弾マーカーを、ダミーや
+// プレイヤーのような曲面へも「面一(壁と平行)」に貼り付けるために使う。
+function capsuleSurfaceNormal(point, cx, cz, baseY, hitbox){
+  const r = hitbox.radius;
+  const segBottom = baseY + r;
+  const segTop = baseY + hitbox.totalHeight - r;
+  const clampedY = Math.max(segBottom, Math.min(segTop, point.y));
+  const dx = point.x - cx;
+  const dy = point.y - clampedY;
+  const dz = point.z - cz;
+  const len = Math.hypot(dx, dy, dz) || 1e-6;
+  return new THREE.Vector3(dx / len, dy / len, dz / len);
+}
+
 // 点pointが、baseY(地面基準)に立つイカ状態の球(中心はbaseY+centerHeight)の
 // 内部にあるかどうかを判定する。
 function sphereHitTest(point, cx, cz, baseY, hitbox, extraRadius){
@@ -1614,14 +1631,19 @@ function simulateBombLanding(origin, vel){
   const maxRangeM = linesToMeters(QUICKBOMB.rangeInertiaLines);
   const simDt = 1 / FPS;
   const maxSteps = FPS * 4; // 安全装置: 最大4秒ぶんシミュレートしたら打ち切る
+  // 自分自身(プレイヤー)への衝突判定は、投擲直後(まだ手元/体のすぐ近くに
+  // ある間)は判定から除外する。muzzleの位置は既にプレイヤーの中心から
+  // ある程度離れているが、念のため「ボム半径+プレイヤーカプセル半径」の
+  // 分だけ進んでから判定を有効にする。
+  const selfCheckMinTraveled = QUICKBOMB_RADIUS_M + HUMAN_HITBOX.radius;
   const points = [origin.clone()];
   const v = vel.clone();
   let pos = origin.clone();
   let traveled = 0;
   let landPos = null;
   let hitDummyFlag = false;
-  let hitWallFlag = false;
-  let wallNormal = null;
+  let hitType = 'floor'; // 'floor' | 'wall' | 'dummy' | 'self'
+  let hitNormal = new THREE.Vector3(0, 1, 0);
 
   for (let i = 0; i < maxSteps; i++){
     v.y -= GRAVITY_MPS2 * simDt;
@@ -1632,6 +1654,9 @@ function simulateBombLanding(origin, vel){
     const hitDummy = dummy.hp > 0 && capsuleHitTest(
       next, dummy.position.x, dummy.position.z, 0, HUMAN_HITBOX, QUICKBOMB_RADIUS_M
     );
+    const hitSelf = !hitDummy && traveled > selfCheckMinTraveled && capsuleHitTest(
+      next, playerGroup.position.x, playerGroup.position.z, 0, HUMAN_HITBOX, QUICKBOMB_RADIUS_M
+    );
     const wallHit = resolveWallHit(next);
     const hitFloor = next.y <= QUICKBOMB_RADIUS_M;
     const rangeCapped = traveled >= maxRangeM;
@@ -1639,19 +1664,30 @@ function simulateBombLanding(origin, vel){
     if (hitDummy){
       landPos = next.clone();
       hitDummyFlag = true;
+      hitType = 'dummy';
+      hitNormal = capsuleSurfaceNormal(next, dummy.position.x, dummy.position.z, 0, HUMAN_HITBOX);
+      points.push(landPos);
+      break;
+    }
+    if (hitSelf){
+      landPos = next.clone();
+      hitType = 'self';
+      hitNormal = capsuleSurfaceNormal(next, playerGroup.position.x, playerGroup.position.z, 0, HUMAN_HITBOX);
       points.push(landPos);
       break;
     }
     if (wallHit){
       landPos = wallHit.pos;
-      hitWallFlag = true;
-      wallNormal = wallHit.normal;
+      hitType = 'wall';
+      hitNormal = wallHit.normal;
       points.push(landPos);
       break;
     }
     if (hitFloor || rangeCapped){
       landPos = next.clone();
       landPos.y = 0;
+      hitType = 'floor';
+      hitNormal = new THREE.Vector3(0, 1, 0);
       points.push(landPos);
       break;
     }
@@ -1664,9 +1700,11 @@ function simulateBombLanding(origin, vel){
     // 念のため)、最後の位置を地面に落として終点にする。
     landPos = pos.clone();
     landPos.y = 0;
+    hitType = 'floor';
+    hitNormal = new THREE.Vector3(0, 1, 0);
     points.push(landPos);
   }
-  return { points, landPos, hitDummy: hitDummyFlag, hitWall: hitWallFlag, wallNormal };
+  return { points, landPos, hitDummy: hitDummyFlag, hitType, hitNormal };
 }
 
 function updateThrowPreview(){
@@ -1687,7 +1725,7 @@ function updateThrowPreview(){
     dir.z * QUICKBOMB_THROW_SPEED_MPS + player.vz
   );
 
-  const { points, landPos, hitDummy, hitWall, wallNormal } = simulateBombLanding(origin, vel);
+  const { points, landPos, hitDummy, hitType, hitNormal } = simulateBombLanding(origin, vel);
 
   // シミュレートした経路点(可変個数)を、描画用の固定セグメント数
   // (THROW_ARC_SEGMENTS+1)へインデックスベースで等間隔リサンプルする。
@@ -1707,24 +1745,17 @@ function updateThrowPreview(){
   throwArcGeo.computeBoundingSphere();
   throwArcLine.visible = true;
 
-  // ダミーへ直撃する軌道なら対象レティクルと同じオレンジで強調し、
-  // 床/壁での着地ならこれまで通り黄色で示す。
+  // ダミー(敵)への直撃ならオレンジ、それ以外(床/壁/自分自身)は黄色。
   throwLandingMat.color.set(hitDummy ? 0xff9a1f : 0xffe14d);
 
-  // マーカーの向き: 床/ダミー直撃なら水平(法線+Y、従来通り)、壁に当たる
-  // 軌道なら、その壁面と平行(=面一)になるよう壁の法線に合わせて縦向きに
-  // 回転させる。RING_LOCAL_NORMAL(既定+Z)から実際に当たった面の法線へ
-  // 回転させるクォータニオンを毎フレーム組み立てて適用する。
+  // マーカーの向き: 床(水平)・壁(垂直)だけでなく、ダミーや自分自身の
+  // ような曲面(カプセル)に当たった場合も、その接触点での実際の法線
+  // (hitNormal、capsuleSurfaceNormal参照)に合わせて向きを合わせる。
+  // これにより「壁」= 平面の壁に限らず、当たったあらゆる面と平行(面一)に
+  // マーカーが貼り付くようになる。
   const markerPos = landPos.clone();
-  let markerNormal;
-  if (hitWall){
-    markerNormal = wallNormal;
-    markerPos.addScaledVector(wallNormal, 0.03); // 壁面からわずかに浮かせてZファイティングを防ぐ
-  } else {
-    markerNormal = new THREE.Vector3(0, 1, 0);
-    if (!hitDummy) markerPos.y = 0.03; // 床/射程上限での着地は従来通りごく僅かに浮かせる
-  }
-  throwLandingMesh.quaternion.setFromUnitVectors(RING_LOCAL_NORMAL, markerNormal);
+  markerPos.addScaledVector(hitNormal, 0.03); // 面からわずかに浮かせてZファイティングを防ぐ
+  throwLandingMesh.quaternion.setFromUnitVectors(RING_LOCAL_NORMAL, hitNormal);
   throwLandingMesh.position.copy(markerPos);
   throwLandingMesh.visible = true;
 }
