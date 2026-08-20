@@ -1574,6 +1574,62 @@ throwLandingMesh.rotation.x = -Math.PI / 2;
 throwLandingMesh.visible = false;
 scene.add(throwLandingMesh);
 
+// クイックボムの投擲プレビュー: 実際のupdateBombs()と全く同じ弾道式・
+// 当たり判定(床/射程ハードキャップ/練習用ダミーのカプセル判定)を1フレーム
+// ずつシミュレートし、最初に何かへ当たった地点(床とは限らず、ダミー本体の
+// 空中の位置であることもある)を着弾マーカーの位置として使う。
+// 以前は「地面(y=0)に到達する時刻」だけを解析的に求めていたため、
+// ダミーへの当たり判定は考慮されず、常に床の位置にしかマーカーが出せな
+// かった(ダミーに直撃するはずの軌道でもマーカーが地面まで貫通していた)。
+function simulateBombLanding(origin, vel){
+  const maxRangeM = linesToMeters(QUICKBOMB.rangeInertiaLines);
+  const simDt = 1 / FPS;
+  const maxSteps = FPS * 4; // 安全装置: 最大4秒ぶんシミュレートしたら打ち切る
+  const points = [origin.clone()];
+  const v = vel.clone();
+  let pos = origin.clone();
+  let traveled = 0;
+  let landPos = null;
+  let hitDummyFlag = false;
+
+  for (let i = 0; i < maxSteps; i++){
+    v.y -= GRAVITY_MPS2 * simDt;
+    const moveVec = v.clone().multiplyScalar(simDt);
+    const next = pos.clone().add(moveVec);
+    traveled += moveVec.length();
+
+    const hitDummy = dummy.hp > 0 && capsuleHitTest(
+      next, dummy.position.x, dummy.position.z, 0, HUMAN_HITBOX, QUICKBOMB_RADIUS_M
+    );
+    const hitFloor = next.y <= QUICKBOMB_RADIUS_M;
+    const rangeCapped = traveled >= maxRangeM;
+
+    if (hitDummy){
+      landPos = next.clone();
+      hitDummyFlag = true;
+      points.push(landPos);
+      break;
+    }
+    if (hitFloor || rangeCapped){
+      landPos = next.clone();
+      landPos.y = 0;
+      points.push(landPos);
+      break;
+    }
+
+    pos = next;
+    points.push(pos.clone());
+  }
+  if (!landPos){
+    // maxStepsに達しても何にも当たらなかった場合(理論上ほぼ起きないが
+    // 念のため)、最後の位置を地面に落として終点にする。
+    landPos = pos.clone();
+    landPos.y = 0;
+    points.push(landPos);
+  }
+  return { points, landPos, hitDummy: hitDummyFlag };
+}
+
 function updateThrowPreview(){
   if (!throwAimHeld || activeOverlay !== null){
     throwArcLine.visible = false;
@@ -1586,37 +1642,39 @@ function updateThrowPreview(){
   // 慣性: 現在のプレイヤー実速度(player.vx/vz)を初速に加算する。これが
   // wikiの「射程 3.0ライン(慣性込み 5.0ライン)」— 走りながら投げるほど
   // 遠くまで届く — の近似実装(実際の投擲throwBomb()と同じ式)。
-  const vx = dir.x * QUICKBOMB_THROW_SPEED_MPS + player.vx;
-  const throwVy = dir.y * QUICKBOMB_THROW_SPEED_MPS;
-  const vz = dir.z * QUICKBOMB_THROW_SPEED_MPS + player.vz;
+  const vel = new THREE.Vector3(
+    dir.x * QUICKBOMB_THROW_SPEED_MPS + player.vx,
+    dir.y * QUICKBOMB_THROW_SPEED_MPS,
+    dir.z * QUICKBOMB_THROW_SPEED_MPS + player.vz
+  );
 
-  // 放物線 y(t) = originY + vy*t - 0.5*g*t² が地面(y=0)に到達する時刻を解く。
-  const a = -0.5 * GRAVITY_MPS2, b = throwVy, c = origin.y;
-  const disc = b * b - 4 * a * c;
-  const landingT = disc >= 0 ? (-b - Math.sqrt(disc)) / (2 * a) : 2.5;
-  // 射程ハードキャップ(慣性込み5.0ライン)に到達する時刻も考慮し、
-  // 短い方をプレビューの終点にする(実際の投擲のrangeCapped処理と整合)。
-  const horizSpeed = Math.hypot(vx, vz);
-  const rangeCapT = horizSpeed > 1e-6 ? linesToMeters(QUICKBOMB.rangeInertiaLines) / horizSpeed : Infinity;
-  const tMax = Math.max(0.05, Math.min(disc >= 0 ? landingT : 2.5, rangeCapT));
+  const { points, landPos, hitDummy } = simulateBombLanding(origin, vel);
 
+  // シミュレートした経路点(可変個数)を、描画用の固定セグメント数
+  // (THROW_ARC_SEGMENTS+1)へインデックスベースで等間隔リサンプルする。
   const positions = throwArcGeo.attributes.position.array;
+  const lastIdx = points.length - 1;
   for (let i = 0; i <= THROW_ARC_SEGMENTS; i++){
-    const t = (i / THROW_ARC_SEGMENTS) * tMax;
-    const x = origin.x + vx * t;
-    const y = Math.max(0, origin.y + throwVy * t - 0.5 * GRAVITY_MPS2 * t * t);
-    const z = origin.z + vz * t;
-    positions[i * 3] = x;
-    positions[i * 3 + 1] = y;
-    positions[i * 3 + 2] = z;
+    const idx = (i / THROW_ARC_SEGMENTS) * lastIdx;
+    const i0 = Math.floor(idx);
+    const i1 = Math.min(lastIdx, i0 + 1);
+    const frac = idx - i0;
+    const p0 = points[i0], p1 = points[i1];
+    positions[i * 3] = p0.x + (p1.x - p0.x) * frac;
+    positions[i * 3 + 1] = p0.y + (p1.y - p0.y) * frac;
+    positions[i * 3 + 2] = p0.z + (p1.z - p0.z) * frac;
   }
   throwArcGeo.attributes.position.needsUpdate = true;
   throwArcGeo.computeBoundingSphere();
   throwArcLine.visible = true;
 
-  const landX = origin.x + vx * tMax;
-  const landZ = origin.z + vz * tMax;
-  throwLandingMesh.position.set(landX, 0.03, landZ);
+  // ダミーへ直撃する軌道なら対象レティクルと同じオレンジで強調し、
+  // 床/射程ハードキャップでの着地ならこれまで通り黄色で示す。
+  throwLandingMat.color.set(hitDummy ? 0xff9a1f : 0xffe14d);
+  throwLandingMesh.position.copy(landPos);
+  // 床(y=0)着地時はこれまで通りごく僅かに浮かせて地面のZファイティングを
+  // 避け、ダミーへの直撃時は当たった実際の高さにそのまま表示する。
+  if (!hitDummy) throwLandingMesh.position.y = 0.03;
   throwLandingMesh.visible = true;
 }
 
