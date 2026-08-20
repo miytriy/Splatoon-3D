@@ -659,6 +659,38 @@ function clampToArena(x, z, margin){
 }
 
 // ==========================================================================
+// 壁(アリーナ境界)判定 — 現在このプロトタイプに専用の壁メッシュは無いが、
+// WALL_HALFで区切られたアリーナの外周を「壁」として扱う。クイックボムの
+// 投擲プレビュー(simulateBombLanding)と実際の投擲(updateBombs)の両方から
+// 共通で呼び出し、境界を越えた瞬間の壁面上のクランプ位置と、壁から室内側
+// へ向かう法線ベクトル(マーカーをその壁と平行に=面一に貼り付けるための
+// 向き)を返す。境界を越えていなければnullを返す。
+// ==========================================================================
+function resolveWallHit(pos){
+  const exceedXPos = pos.x - WALL_HALF;   // 東側の壁をどれだけ越えたか(>0で越えている)
+  const exceedXNeg = -WALL_HALF - pos.x;  // 西側の壁をどれだけ越えたか
+  const exceedZPos = pos.z - WALL_HALF;   // 南側の壁をどれだけ越えたか
+  const exceedZNeg = -WALL_HALF - pos.z;  // 北側の壁をどれだけ越えたか
+  const exceedX = Math.max(exceedXPos, exceedXNeg, 0);
+  const exceedZ = Math.max(exceedZPos, exceedZNeg, 0);
+  if (exceedX <= 0 && exceedZ <= 0) return null; // どちらの境界も越えていない
+
+  const clamped = pos.clone();
+  let normal;
+  if (exceedX >= exceedZ){
+    // X方向の境界を先に越えた: 壁面はX一定の垂直面、法線は室内向き(∓X)。
+    const isPositiveSide = exceedXPos > exceedXNeg;
+    clamped.x = isPositiveSide ? WALL_HALF : -WALL_HALF;
+    normal = new THREE.Vector3(isPositiveSide ? -1 : 1, 0, 0);
+  } else {
+    const isPositiveSide = exceedZPos > exceedZNeg;
+    clamped.z = isPositiveSide ? WALL_HALF : -WALL_HALF;
+    normal = new THREE.Vector3(0, 0, isPositiveSide ? -1 : 1);
+  }
+  return { pos: clamped, normal };
+}
+
+// ==========================================================================
 // インク塗りシステム(2Dプロトタイプ ink-paint-prototype.html からの移植)
 // --------------------------------------------------------------------------
 // 2D版のcoverageLayer/paintLayerの二層構成をそのまま踏襲する:
@@ -1570,17 +1602,14 @@ scene.add(throwArcLine);
 
 const throwLandingMat = new THREE.MeshBasicMaterial({ color: 0xffe14d, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
 const throwLandingMesh = new THREE.Mesh(new THREE.RingGeometry(0.18, 0.28, 20), throwLandingMat);
-throwLandingMesh.rotation.x = -Math.PI / 2;
+// 向き(rotation)は毎フレーム、当たった面の法線に合わせてupdateThrowPreview()
+// 側でクォータニオンとして設定し直す(床なら水平、壁なら壁面と平行=面一に
+// なるように)。RingGeometryは既定でXY平面上・法線+Zを向いているため、
+// その既定法線を基準に回転を組み立てる。
+const RING_LOCAL_NORMAL = new THREE.Vector3(0, 0, 1);
 throwLandingMesh.visible = false;
 scene.add(throwLandingMesh);
 
-// クイックボムの投擲プレビュー: 実際のupdateBombs()と全く同じ弾道式・
-// 当たり判定(床/射程ハードキャップ/練習用ダミーのカプセル判定)を1フレーム
-// ずつシミュレートし、最初に何かへ当たった地点(床とは限らず、ダミー本体の
-// 空中の位置であることもある)を着弾マーカーの位置として使う。
-// 以前は「地面(y=0)に到達する時刻」だけを解析的に求めていたため、
-// ダミーへの当たり判定は考慮されず、常に床の位置にしかマーカーが出せな
-// かった(ダミーに直撃するはずの軌道でもマーカーが地面まで貫通していた)。
 function simulateBombLanding(origin, vel){
   const maxRangeM = linesToMeters(QUICKBOMB.rangeInertiaLines);
   const simDt = 1 / FPS;
@@ -1591,6 +1620,8 @@ function simulateBombLanding(origin, vel){
   let traveled = 0;
   let landPos = null;
   let hitDummyFlag = false;
+  let hitWallFlag = false;
+  let wallNormal = null;
 
   for (let i = 0; i < maxSteps; i++){
     v.y -= GRAVITY_MPS2 * simDt;
@@ -1601,12 +1632,20 @@ function simulateBombLanding(origin, vel){
     const hitDummy = dummy.hp > 0 && capsuleHitTest(
       next, dummy.position.x, dummy.position.z, 0, HUMAN_HITBOX, QUICKBOMB_RADIUS_M
     );
+    const wallHit = resolveWallHit(next);
     const hitFloor = next.y <= QUICKBOMB_RADIUS_M;
     const rangeCapped = traveled >= maxRangeM;
 
     if (hitDummy){
       landPos = next.clone();
       hitDummyFlag = true;
+      points.push(landPos);
+      break;
+    }
+    if (wallHit){
+      landPos = wallHit.pos;
+      hitWallFlag = true;
+      wallNormal = wallHit.normal;
       points.push(landPos);
       break;
     }
@@ -1627,7 +1666,7 @@ function simulateBombLanding(origin, vel){
     landPos.y = 0;
     points.push(landPos);
   }
-  return { points, landPos, hitDummy: hitDummyFlag };
+  return { points, landPos, hitDummy: hitDummyFlag, hitWall: hitWallFlag, wallNormal };
 }
 
 function updateThrowPreview(){
@@ -1648,7 +1687,7 @@ function updateThrowPreview(){
     dir.z * QUICKBOMB_THROW_SPEED_MPS + player.vz
   );
 
-  const { points, landPos, hitDummy } = simulateBombLanding(origin, vel);
+  const { points, landPos, hitDummy, hitWall, wallNormal } = simulateBombLanding(origin, vel);
 
   // シミュレートした経路点(可変個数)を、描画用の固定セグメント数
   // (THROW_ARC_SEGMENTS+1)へインデックスベースで等間隔リサンプルする。
@@ -1669,12 +1708,24 @@ function updateThrowPreview(){
   throwArcLine.visible = true;
 
   // ダミーへ直撃する軌道なら対象レティクルと同じオレンジで強調し、
-  // 床/射程ハードキャップでの着地ならこれまで通り黄色で示す。
+  // 床/壁での着地ならこれまで通り黄色で示す。
   throwLandingMat.color.set(hitDummy ? 0xff9a1f : 0xffe14d);
-  throwLandingMesh.position.copy(landPos);
-  // 床(y=0)着地時はこれまで通りごく僅かに浮かせて地面のZファイティングを
-  // 避け、ダミーへの直撃時は当たった実際の高さにそのまま表示する。
-  if (!hitDummy) throwLandingMesh.position.y = 0.03;
+
+  // マーカーの向き: 床/ダミー直撃なら水平(法線+Y、従来通り)、壁に当たる
+  // 軌道なら、その壁面と平行(=面一)になるよう壁の法線に合わせて縦向きに
+  // 回転させる。RING_LOCAL_NORMAL(既定+Z)から実際に当たった面の法線へ
+  // 回転させるクォータニオンを毎フレーム組み立てて適用する。
+  const markerPos = landPos.clone();
+  let markerNormal;
+  if (hitWall){
+    markerNormal = wallNormal;
+    markerPos.addScaledVector(wallNormal, 0.03); // 壁面からわずかに浮かせてZファイティングを防ぐ
+  } else {
+    markerNormal = new THREE.Vector3(0, 1, 0);
+    if (!hitDummy) markerPos.y = 0.03; // 床/射程上限での着地は従来通りごく僅かに浮かせる
+  }
+  throwLandingMesh.quaternion.setFromUnitVectors(RING_LOCAL_NORMAL, markerNormal);
+  throwLandingMesh.position.copy(markerPos);
   throwLandingMesh.visible = true;
 }
 
@@ -1777,9 +1828,13 @@ function updateExplosionFx(dt){
 // 爆発処理: 塗り(全方位の円形splat、着弾方向への伸びはなし) + ダメージ判定
 // (直撃/近距離爆風/遠距離爆風) + 視覚エフェクト。
 // directHit: 弾がダミーへ直接接触して爆発した場合はtrue(直撃扱い)。
-function explodeBomb(explosionPos, directHit){
-  paintSplatAtWorld(explosionPos.x, explosionPos.z, QUICKBOMB.paintRadiusLines);
-  creditCappedPaintPoints(QUICKBOMB.paintPoints);
+// paintFloor: falseを渡すと地面への塗りをスキップする(壁への着弾など、
+// 爆発地点の直下の床が実際の着弾面ではない場合に使う)。省略時はtrue。
+function explodeBomb(explosionPos, directHit, paintFloor){
+  if (paintFloor !== false){
+    paintSplatAtWorld(explosionPos.x, explosionPos.z, QUICKBOMB.paintRadiusLines);
+    creditCappedPaintPoints(QUICKBOMB.paintPoints);
+  }
   spawnExplosionFx(explosionPos);
 
   if (dummy.hp > 0){
@@ -1823,12 +1878,22 @@ function updateBombs(dt){
     const hitDummy = dummy.hp > 0 && capsuleHitTest(
       next, dummy.position.x, dummy.position.z, 0, HUMAN_HITBOX, QUICKBOMB_RADIUS_M
     );
+    const wallHit = resolveWallHit(next);
     const hitFloor = next.y <= QUICKBOMB_RADIUS_M;
     const rangeCapped = bomb.traveled >= linesToMeters(QUICKBOMB.rangeInertiaLines);
-    const leftArena = Math.abs(next.x) > WALL_HALF || Math.abs(next.z) > WALL_HALF || next.y > 30;
+    // x/z方向の場外はresolveWallHit(=壁ヒット)で先に処理されるため、ここでは
+    // 想定外に高く飛び続けた場合の安全装置としてのみ残す。
+    const leftArena = next.y > 30;
 
     if (hitDummy){
       explodeBomb(next.clone(), true);
+      scene.remove(bomb.mesh);
+      bomb.alive = false;
+    } else if (wallHit){
+      // 壁への着弾: このプロトタイプの塗りは地面を真上から見た二次元マップ
+      // のみのため、垂直な壁面には塗りを反映できない(paintFloor: false)。
+      // 爆発エフェクトとダメージ判定はプレビュー通りその場で発生させる。
+      explodeBomb(wallHit.pos, false, false);
       scene.remove(bomb.mesh);
       bomb.alive = false;
     } else if (hitFloor || rangeCapped){
