@@ -227,7 +227,7 @@
     <div class="target-x"><span></span><span></span></div>
   </div>
   <div id="fov-state" class="label" style="position:absolute; top:12px; left:50%; transform:translateX(-50%); background:rgba(13,14,18,.6); padding:4px 10px; border-radius:6px; border:1px solid #262a36;">FOV: 55.0°(ヒト状態)</div>
-  <div id="scope-note">移動・TPS視点・スプラシューター1丁の発射に加え、塗り判定(インクの蓄積・自陣インク判定・塗りポイント)を2Dプロトタイプから移植済み。<br>複数武器/サブ/スペシャルは未実装(次フェーズ)。<br>右クリック長押し=イカ状態(自陣インク上なら潜行・急速回復)／Eキー長押し=投擲構え(FOVのみ、投擲自体は未実装)。</div>
+  <div id="scope-note">移動・TPS視点・スプラシューター1丁の発射に加え、塗り判定(インクの蓄積・自陣インク判定・塗りポイント)を2Dプロトタイプから移植済み。サブウェポン「クイックボム」を実装済み(E長押しで構え→離すと投擲)。<br>他の複数武器/スペシャルは未実装(次フェーズ)。<br>右クリック長押し=イカ状態(自陣インク上なら潜行・急速回復)／Eキー長押し=クイックボムの投擲構え(離すと投擲)。</div>
   <div id="footer-hint">ESC ポーズ　／　F メニュー　／　B カスタマイズ</div>
   <div id="pointerlock-prompt"><b>クリックしてマウスルックを有効化</b><br>WASD移動／マウスで視点／左クリックで発射</div>
   <div id="special-toast" class="label" style="position:absolute; top:52px; left:50%; transform:translateX(-50%); background:rgba(13,14,18,.78); padding:5px 12px; border-radius:6px; border:1px solid #262a36; color:var(--ink); opacity:0; transition:opacity .2s; pointer-events:none;">スペシャル: このプロトタイプでは未実装です</div>
@@ -321,11 +321,16 @@
        キー・ポーズ/メニュー/カスタマイズ/ロビー/マップの各オーバーレイと
        それらを開くキー)を移植。オーバーレイ・スペシャル・ジャンプ周りの
        詳細は各セクションのコメントを参照。
+     - サブウェポン「クイックボム」(Eキーで構え→離すと投擲)。前隙/後隙/
+       連続使用フレーム/インク消費・回復不能時間・直撃/近距離爆風/遠距離
+       爆風ダメージ・塗り半径/塗りポイントをwiki実測値ベースで実装。
+       詳細はQUICKBOMB定数と「クイックボム(サブウェポン)本体」セクションの
+       コメントを参照。
 
    NOT yet ported (left for a later pass, once this movement/camera/weapon
    core feels right):
-     - the other two weapons, sub weapon, both specials(Rキーは受け付ける
-       が、実際に発動するスペシャルはまだ無いためスタブ扱い)
+     - the other two weapons, もう一方のスペシャル(Rキーは受け付けるが、
+       実際に発動するスペシャルはまだ無いためスタブ扱い)
      - walls/obstacles
      - チーム(敵)インクの概念 — このプロトタイプには自陣インクしか無い
        ため、「敵インク上でイカダッシュ不可」は引き続き未実装
@@ -487,6 +492,50 @@ const WEAPON = {
   bulletDiameterEnemyDU: 0.114,   // 弾の大きさ(敵): イカ・タコ/オブジェクトへの当たり判定
   bulletDiameterTerrainDU: 0.08,  // 弾の大きさ(地形): 地形への当たり判定
 };
+
+// ==========================================================================
+// クイックボム(サブウェポン) — wiki実測値ベース。
+//   インク消費量: 45% / インク回復不能時間: 60F(1.00秒)
+//   ダメージ(直撃): 25.0 ※直撃そのもののダメージ。実際に直撃させた場合、
+//     1F後に近距離爆風35.0が追加でヒットする2ヒット構成(合計60.0)。
+//     このプロトタイプでは簡略化し、直撃した瞬間に25.0+35.0=60.0を
+//     まとめて1回で与える(同期ズレによる「直撃25.0のみ」のケースは省略)。
+//   ダメージ(近距離爆風): 35.0 / 半径0.56ライン
+//   ダメージ(遠距離爆風): 25.0 / 半径0.80ライン
+//   塗り面積: 15p / 塗り半径: 0.80ライン
+//   投擲初速: 11.2(DU/F) / 射程: 3.0ライン(慣性込み 5.0ライン)
+//   前隙(イカ): 10F / 前隙(ヒト): 5F
+//   連続使用フレーム: 30F(0.500秒) / 後隙: 10F
+// 「何かしらに当たると即座に爆発する」= 床・壁・オブジェクト・敵、最初に
+// 触れた物で即着弾即爆発(バウンドしない)。
+// ==========================================================================
+const QUICKBOMB = {
+  name: 'クイックボム',
+  inkCostPercent: 45,             // インク消費量: 45%
+  inkRegenLockoutFrames: 60,      // インク回復不能時間: 60F(1.00秒)
+  damageDirect: 25.0,             // ダメージ(直撃)
+  damageNear: 35.0,               // ダメージ(近距離爆風)
+  damageNearRadiusLines: 0.56,    // ダメージ半径(近距離)
+  damageFar: 25.0,                // ダメージ(遠距離爆風)
+  damageFarRadiusLines: 0.80,     // ダメージ半径(遠距離)
+  paintPoints: 15,                // 塗り面積: 15p(単発塗りポイントの上限)
+  paintRadiusLines: 0.80,         // 塗り半径: 0.80ライン
+  throwSpeedDU: 11.2,             // 投擲初速(DU/F)
+  rangeLines: 3.0,                // 射程(慣性なし)
+  rangeInertiaLines: 5.0,         // 射程(慣性込み=助走をつけて投げた場合の最大値)
+  startupFramesSquid: 10,         // 前隙(イカ→ヒト遷移込み)
+  startupFramesHuman: 5,          // 前隙(ヒト)
+  minThrowIntervalFrames: 30,     // 連続使用フレーム(2投目までの最短間隔)
+  postThrowLockFrames: 10,        // 後隙
+};
+// 投擲初速をm/sへ変換(main weaponのspeedDUと同じduPerFrameToMPerSec変換を
+// 流用)。重力は公式データが見つからなかったため、プレイヤーのジャンプ
+// 重力(GRAVITY_MPS2、後方のMovementセクションで定義)を流用する暫定値
+// (投擲プレビュー/実投擲の両方でこの値を共有する)。
+const QUICKBOMB_THROW_SPEED_MPS = duPerFrameToMPerSec(QUICKBOMB.throwSpeedDU);
+// 見た目のサイズに合わせた当たり判定半径(公式の当たり判定サイズ値は
+// 未公開のため、参考画像のボム形状に基づく近似値)。
+const QUICKBOMB_RADIUS_M = 0.16;
 
 // (B)(C)(D)(E)(F)(G)(H) をm/s・m/s²系へ変換した実働定数。DU/F系の生値は
 // WEAPON.ballistics側にコメント付きで残し、ここではシミュレーションで直接
@@ -1290,7 +1339,7 @@ function updateCamera(dt){
 const keys = { w:false, a:false, s:false, d:false };
 let aimLocked = false; // Shift: 照準ロック(カニ歩き)
 const JUMP_SPEED_MPS = 5.2;         // ジャンプ初速(m/s)。人間サイズのキャラが軽快に跳ねる程度の値。
-const GRAVITY_MPS2 = 18;            // 投擲プレビューの重力(THROW_PREVIEW_GRAVITY_MPS2)と揃えた値。
+const GRAVITY_MPS2 = 18;            // 重力加速度(m/s²)。ジャンプ・クイックボムの投擲弾道で共通利用する。
 let vy = 0;                          // プレイヤーの垂直速度(m/s)。0=地面に接地。
 let grounded = true;
 
@@ -1349,7 +1398,15 @@ window.addEventListener('keyup', e => {
   if (activeOverlay !== null) return;
   if (k in keys) keys[k] = false;
   if (e.key === 'Shift') aimLocked = false;
-  if (k === 'e') throwAimHeld = false;
+  if (k === 'e'){
+    if (throwAimHeld){
+      // 前隙(ヒト5F / 直前がイカ状態だった場合は10F)ぶん遅延させてから
+      // 実際に投擲する(main weaponのfiring windupと同じ考え方)。
+      const startupFrames = wasSquidRecentlyForStartup ? QUICKBOMB.startupFramesSquid : QUICKBOMB.startupFramesHuman;
+      pendingBombThrowAt = performance.now() + framesToSeconds(startupFrames) * 1000;
+    }
+    throwAimHeld = false;
+  }
 });
 
 // スペシャル発動キー(R)のスタブ表示: まだ実装が無いことを専用のトースト
@@ -1495,12 +1552,13 @@ function updateTargetReticle(){
 
 // ==========================================================================
 // 投擲プレビュー(弾道+着地点) — Eキー長押し(投擲構え)中、追尾レティクルを
-// 消して代わりに表示する。サブウェポン自体はまだ未実装のため、初速・重力は
-// 実データが無い暫定のプレースホルダー値(コメント参照)。実際のサブウェポンを
-// 実装する際は、この2定数を公式データへ差し替えるだけで済むようにしてある。
+// 消して代わりに表示する。クイックボムの実測初速(QUICKBOMB_THROW_SPEED_MPS)
+// と、プレイヤーのジャンプ重力を流用したGRAVITY_MPS2(重力の公式データは
+// 未公開のため暫定値)を使い、実際の投擲(throwBomb関数、下部の「クイック
+// ボム(サブウェポン)本体」セクション参照)と全く同じ弾道式でプレビューする。
+// 「慣性込み」射程(走りながらの投擲で伸びる分)を再現するため、プレビューの
+// 初速にも現在のプレイヤー実速度(player.vx/vz)を加算している。
 // ==========================================================================
-const THROW_PREVIEW_SPEED_MPS = 13;     // 仮値: 初速(m/s)。公式データ未反映。
-const THROW_PREVIEW_GRAVITY_MPS2 = 18;  // 仮値: 重力加速度(m/s²)。公式データ未反映。
 const THROW_ARC_SEGMENTS = 24;
 
 const throwArcGeo = new THREE.BufferGeometry();
@@ -1525,21 +1583,28 @@ function updateThrowPreview(){
 
   const origin = playerGroup.position.clone().add(new THREE.Vector3(0, MUZZLE_HEIGHT, 0));
   const dir = getAimDirection();
-  const vx = dir.x * THROW_PREVIEW_SPEED_MPS;
-  const throwVy = dir.y * THROW_PREVIEW_SPEED_MPS;
-  const vz = dir.z * THROW_PREVIEW_SPEED_MPS;
+  // 慣性: 現在のプレイヤー実速度(player.vx/vz)を初速に加算する。これが
+  // wikiの「射程 3.0ライン(慣性込み 5.0ライン)」— 走りながら投げるほど
+  // 遠くまで届く — の近似実装(実際の投擲throwBomb()と同じ式)。
+  const vx = dir.x * QUICKBOMB_THROW_SPEED_MPS + player.vx;
+  const throwVy = dir.y * QUICKBOMB_THROW_SPEED_MPS;
+  const vz = dir.z * QUICKBOMB_THROW_SPEED_MPS + player.vz;
 
   // 放物線 y(t) = originY + vy*t - 0.5*g*t² が地面(y=0)に到達する時刻を解く。
-  const a = -0.5 * THROW_PREVIEW_GRAVITY_MPS2, b = throwVy, c = origin.y;
+  const a = -0.5 * GRAVITY_MPS2, b = throwVy, c = origin.y;
   const disc = b * b - 4 * a * c;
   const landingT = disc >= 0 ? (-b - Math.sqrt(disc)) / (2 * a) : 2.5;
-  const tMax = Math.max(0.05, landingT);
+  // 射程ハードキャップ(慣性込み5.0ライン)に到達する時刻も考慮し、
+  // 短い方をプレビューの終点にする(実際の投擲のrangeCapped処理と整合)。
+  const horizSpeed = Math.hypot(vx, vz);
+  const rangeCapT = horizSpeed > 1e-6 ? linesToMeters(QUICKBOMB.rangeInertiaLines) / horizSpeed : Infinity;
+  const tMax = Math.max(0.05, Math.min(disc >= 0 ? landingT : 2.5, rangeCapT));
 
   const positions = throwArcGeo.attributes.position.array;
   for (let i = 0; i <= THROW_ARC_SEGMENTS; i++){
     const t = (i / THROW_ARC_SEGMENTS) * tMax;
     const x = origin.x + vx * t;
-    const y = Math.max(0, origin.y + throwVy * t - 0.5 * THROW_PREVIEW_GRAVITY_MPS2 * t * t);
+    const y = Math.max(0, origin.y + throwVy * t - 0.5 * GRAVITY_MPS2 * t * t);
     const z = origin.z + vz * t;
     positions[i * 3] = x;
     positions[i * 3 + 1] = y;
@@ -1554,6 +1619,183 @@ function updateThrowPreview(){
   throwLandingMesh.position.set(landX, 0.03, landZ);
   throwLandingMesh.visible = true;
 }
+
+// ==========================================================================
+// クイックボム(サブウェポン)本体
+// --------------------------------------------------------------------------
+// Eキーで構え(投擲構え、上のupdateThrowPreview参照)、離すと前隙
+// (5F/10F)ぶん遅延させてから実際に投げる。「何かしらに当たると即座に
+// 爆発する」ため、弾のようにバウンド・転がりはさせず、床/ダミー/場外の
+// いずれかに触れた瞬間その位置で即爆発させる。
+// ==========================================================================
+const bombs = [];
+let lastBombThrowAt = -Infinity;   // 最後にクイックボムを投げた時刻(performance.now())。インク回復不能時間・連続使用フレームの起点。
+let bombPostThrowLockUntil = 0;    // 後隙(10F)が明けるまでの時刻
+let pendingBombThrowAt = null;     // 前隙待ちで予約された、実際に投げ「る」べき時刻(nullなら予約なし)
+
+// 参考画像の見た目(紫〜白の螺旋模様が入った雫型+上部の小さな取っ手)を、
+// three.jsのプリミティブで簡易再現したボム本体メッシュ。
+function createBombMesh(){
+  const group = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0xcbb2e8, roughness: 0.3, metalness: 0.08 });
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.15, 14, 12), bodyMat);
+  body.scale.set(1, 1.2, 1); // 雫型に近づけるための縦方向スケール
+  body.castShadow = true;
+  group.add(body);
+  const stripeMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 });
+  for (let i = 0; i < 3; i++){
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.012, 6, 16), stripeMat);
+    ring.rotation.x = Math.PI / 2 + (i - 1) * 0.35;
+    ring.position.y = (i - 1) * 0.05;
+    ring.scale.set(1, 1, 1);
+    group.add(ring);
+  }
+  const nubMat = new THREE.MeshStandardMaterial({ color: 0x2a2d38, roughness: 0.5 });
+  const nub = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.08, 8), nubMat);
+  nub.position.y = 0.21;
+  group.add(nub);
+  return group;
+}
+
+// クイックボムを実際に投げる(前隙を待った後、下のkeyup('e')ハンドラから
+// 遅延呼び出しされる)。インク不足・連続使用フレーム未経過・後隙中の
+// いずれかに該当する場合は、投げずに黙って何も起きない(公式仕様通り
+// ボタンが弾かれるだけの挙動を模している)。
+function throwBomb(){
+  if (form !== 'human') return; // イカ状態からの直接投擲は未対応
+  const now = performance.now();
+  if (now - lastBombThrowAt < framesToSeconds(QUICKBOMB.minThrowIntervalFrames) * 1000) return;
+  if (now < bombPostThrowLockUntil) return;
+  if (player.ink < QUICKBOMB.inkCostPercent) return;
+
+  player.ink -= QUICKBOMB.inkCostPercent;
+  lastBombThrowAt = now;
+  bombPostThrowLockUntil = now + framesToSeconds(QUICKBOMB.postThrowLockFrames) * 1000;
+
+  const dir = getAimDirection();
+  const origin = playerGroup.position.clone().add(new THREE.Vector3(0, MUZZLE_HEIGHT, 0));
+  const vel = dir.clone().multiplyScalar(QUICKBOMB_THROW_SPEED_MPS);
+  // 慣性: 投擲時のプレイヤー実速度を加算する(updateThrowPreview()の
+  // プレビューと同じ式。走りながらの投擲で射程3.0→5.0ラインへ伸びる)。
+  vel.x += player.vx;
+  vel.z += player.vz;
+
+  const mesh = createBombMesh();
+  mesh.position.copy(origin);
+  scene.add(mesh);
+
+  bombs.push({ mesh, pos: origin.clone(), vel, traveled: 0, alive: true });
+}
+
+// --------------------------------------------------------------------------
+// 爆発エフェクト(拡大しながらフェードアウトする簡易フラッシュ)。
+// --------------------------------------------------------------------------
+const explosionFx = [];
+function spawnExplosionFx(pos){
+  const geo = new THREE.SphereGeometry(0.22, 12, 10);
+  const mat = new THREE.MeshBasicMaterial({ color: 0xfff3c4, transparent: true, opacity: 0.9 });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.copy(pos);
+  mesh.position.y = Math.max(mesh.position.y, 0.25);
+  scene.add(mesh);
+  explosionFx.push({ mesh, mat, age: 0, life: 0.26 });
+}
+function updateExplosionFx(dt){
+  for (const fx of explosionFx){
+    fx.age += dt;
+    const t = Math.min(1, fx.age / fx.life);
+    const scale = 1 + t * 9;
+    fx.mesh.scale.set(scale, scale, scale);
+    fx.mat.opacity = 0.9 * (1 - t);
+  }
+  for (let i = explosionFx.length - 1; i >= 0; i--){
+    if (explosionFx[i].age >= explosionFx[i].life){
+      scene.remove(explosionFx[i].mesh);
+      explosionFx.splice(i, 1);
+    }
+  }
+}
+
+// 爆発処理: 塗り(全方位の円形splat、着弾方向への伸びはなし) + ダメージ判定
+// (直撃/近距離爆風/遠距離爆風) + 視覚エフェクト。
+// directHit: 弾がダミーへ直接接触して爆発した場合はtrue(直撃扱い)。
+function explodeBomb(explosionPos, directHit){
+  paintSplatAtWorld(explosionPos.x, explosionPos.z, QUICKBOMB.paintRadiusLines);
+  creditCappedPaintPoints(QUICKBOMB.paintPoints);
+  spawnExplosionFx(explosionPos);
+
+  if (dummy.hp > 0){
+    const dummyCenter = new THREE.Vector3(dummy.position.x, 0.9, dummy.position.z);
+    const distLines = explosionPos.distanceTo(dummyCenter) / METERS_PER_LINE;
+    let dmg = 0;
+    if (directHit){
+      // 直撃: 直撃ダメージ(25.0) + 1F後に追加でヒットする近距離爆風(35.0)を
+      // 合算して即時に与える(wiki記載の2ヒット構成を簡略化した近似実装)。
+      dmg = QUICKBOMB.damageDirect + QUICKBOMB.damageNear;
+    } else if (distLines <= QUICKBOMB.damageNearRadiusLines){
+      dmg = QUICKBOMB.damageNear;
+    } else if (distLines <= QUICKBOMB.damageFarRadiusLines){
+      const t = (distLines - QUICKBOMB.damageNearRadiusLines) / (QUICKBOMB.damageFarRadiusLines - QUICKBOMB.damageNearRadiusLines);
+      dmg = QUICKBOMB.damageNear + (QUICKBOMB.damageFar - QUICKBOMB.damageNear) * t;
+    }
+    if (dmg > 0){
+      dummy.hp = Math.max(0, dummy.hp - dmg);
+      updateDummyHpUI();
+      if (dummy.hp === 0){
+        killCount++;
+        document.getElementById('kill-count').textContent = `撃破数: ${killCount}`;
+        setTimeout(respawnDummy, 500);
+      }
+    }
+  }
+}
+
+// クイックボムの弾道更新: 単純な放物運動(初速+重力のみ、main weaponの
+// ような減速/自由落下フェーズは持たない)。床・ダミー・射程ハードキャップ・
+// 場外のいずれかに触れた瞬間、即座に爆発させる(バウンドしない)。
+function updateBombs(dt){
+  for (const bomb of bombs){
+    if (!bomb.alive) continue;
+
+    bomb.vel.y -= GRAVITY_MPS2 * dt;
+    const moveVec = bomb.vel.clone().multiplyScalar(dt);
+    const next = bomb.pos.clone().add(moveVec);
+    bomb.traveled += moveVec.length();
+
+    const hitDummy = dummy.hp > 0 && capsuleHitTest(
+      next, dummy.position.x, dummy.position.z, 0, HUMAN_HITBOX, QUICKBOMB_RADIUS_M
+    );
+    const hitFloor = next.y <= QUICKBOMB_RADIUS_M;
+    const rangeCapped = bomb.traveled >= linesToMeters(QUICKBOMB.rangeInertiaLines);
+    const leftArena = Math.abs(next.x) > WALL_HALF || Math.abs(next.z) > WALL_HALF || next.y > 30;
+
+    if (hitDummy){
+      explodeBomb(next.clone(), true);
+      scene.remove(bomb.mesh);
+      bomb.alive = false;
+    } else if (hitFloor || rangeCapped){
+      const landPos = next.clone();
+      landPos.y = 0;
+      explodeBomb(landPos, false);
+      scene.remove(bomb.mesh);
+      bomb.alive = false;
+    } else if (leftArena){
+      // アリーナ外へ抜けた場合は爆発させずに消す(塗り判定できないため)。
+      scene.remove(bomb.mesh);
+      bomb.alive = false;
+    } else {
+      bomb.pos.copy(next);
+      bomb.mesh.position.copy(next);
+      // 回転させて「投げられた物」らしい見た目にする。
+      bomb.mesh.rotation.x += dt * 7;
+      bomb.mesh.rotation.z += dt * 5;
+    }
+  }
+  for (let i = bombs.length - 1; i >= 0; i--){
+    if (!bombs[i].alive) bombs.splice(i, 1);
+  }
+}
+
 renderer.domElement.addEventListener('mousedown', e => {
   if (activeOverlay !== null) return; // オーバーレイ表示中はゲーム内クリックを無視する
   if (!pointerLocked){ renderer.domElement.requestPointerLock(); return; }
@@ -1637,6 +1879,7 @@ function openOverlay(name){
   mouseDown = false;
   keys.w = keys.a = keys.s = keys.d = false;
   throwAimHeld = false;
+  pendingBombThrowAt = null;
   aimLocked = false; // 押しっぱなしのShiftがオーバーレイを開いた後も残らないようにする
   if (document.pointerLockElement === renderer.domElement) document.exitPointerLock();
   updatePointerLockPromptVisibility();
@@ -1664,7 +1907,7 @@ const HELP_KEY_ROWS = [
   ['マウス移動', '視点操作(マウスルック)'],
   ['左クリック(長押し)', '発射'],
   ['右クリック(長押し)', 'イカ状態(自陣インク上なら潜行・急速回復)'],
-  ['E(長押し)', '投擲構え(FOVズームのみ。サブウェポン自体は未実装)'],
+  ['E(長押し→離す)', 'クイックボムを投擲(構え中はFOVズーム+弾道プレビューを表示)'],
   ['R', 'スペシャル発動(未実装。押すとその旨を表示)'],
   ['Shift(長押し)', '照準ロック(カニ歩き。視点を固定したまま移動できる)'],
   ['スペース', 'ジャンプ'],
@@ -1698,7 +1941,7 @@ function showMenuTab(tab){
     const rows = HELP_KEY_ROWS.map(([k, v]) => `<li><b>${k}</b><span>${v}</span></li>`).join('');
     contentEl.innerHTML = `
       <ul class="help-key-list">${rows}</ul>
-      <div class="help-note">※ このプロトタイプでは、サブウェポン・スペシャル・ロビーメニュー・マップは未実装です。</div>`;
+      <div class="help-note">※ このプロトタイプでは、スペシャル・ロビーメニュー・マップは未実装です(サブウェポンはクイックボムのみ実装済み)。</div>`;
   }
 }
 document.querySelectorAll('#menu-overlay [data-menu-tab]').forEach(btn => {
@@ -2134,8 +2377,9 @@ function updateWeapon(dt, firing){
   updateFiringAccuracyState(firing);
 
   const now = performance.now();
-  // イカ状態では発射不可(2Dプロトタイプと同じ制約)。
-  if (mouseDown && pointerLocked && form === 'human'){
+  // イカ状態では発射不可(2Dプロトタイプと同じ制約)。投擲構え中(throwAimHeld)
+  // もクイックボムの構えモーション優先のため、メイン射撃は行わない。
+  if (mouseDown && pointerLocked && form === 'human' && !throwAimHeld){
     if (!firstShotOfBurstFired){
       // このバーストの最初の1発は、射撃前隙(firingWindupFrames)が
       // 経過するまで待つ(ヒト状態2F / イカ→ヒト遷移直後10F)。
@@ -2151,13 +2395,15 @@ function updateWeapon(dt, firing){
 }
 
 function updateInk(dt, firing){
-  // インク回復不能時間(20F): 最後に発射してから一定時間が経過するまでは
-  // 自然回復が始まらない(公式実測値。以前は簡略化して発射していない間は
-  // 常に回復する扱いだった)。
+  // インク回復不能時間: メイン武器(20F)・クイックボム(60F)それぞれの
+  // 最終使用時刻から、より遅く明ける方を基準に自然回復の開始を待つ
+  // (公式仕様通り、サブを投げた直後はメインより長く回復が止まる)。
   if (!firing){
     const now = performance.now();
-    const lockoutMs = framesToSeconds(WEAPON.inkRegenLockoutFrames) * 1000;
-    if (now - lastShotAt >= lockoutMs){
+    const mainLockoutMs = framesToSeconds(WEAPON.inkRegenLockoutFrames) * 1000;
+    const bombLockoutMs = framesToSeconds(QUICKBOMB.inkRegenLockoutFrames) * 1000;
+    const lockedUntil = Math.max(lastShotAt + mainLockoutMs, lastBombThrowAt + bombLockoutMs);
+    if (now >= lockedUntil){
       const rapid = form === 'squid' && isOnOwnInk();
       const rate = rapid ? player.swimRegenRate : player.regenRate;
       player.ink = Math.min(player.maxInk, player.ink + rate * dt);
@@ -2205,6 +2451,13 @@ function loop(now){
     updateSquidFormLock();
     updateMovement(dt, firing, actionState);
     updateWeapon(dt, firing);
+    // 前隙待ちで予約されたクイックボムの投擲を、時刻が来たら実行する。
+    if (pendingBombThrowAt !== null && now >= pendingBombThrowAt){
+      throwBomb();
+      pendingBombThrowAt = null;
+    }
+    updateBombs(dt);
+    updateExplosionFx(dt);
     updateFallingInkDrops(dt);
     updateInk(dt, firing);
     updateCamera(dt);
