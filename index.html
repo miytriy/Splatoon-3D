@@ -1600,13 +1600,113 @@ function updateTargetReticle(){
 }
 
 // ==========================================================================
+// クイックボム等「投擲物」の弾道サブステップ物理(トンネリング対策)
+// --------------------------------------------------------------------------
+// クイックボムの投擲初速は67m/s超と非常に速く、1フレーム(1/60秒)だけでも
+// 1m以上移動する。一方でダミー(や自分自身)の当たり判定カプセルは半径
+// 0.35m程度しかないため、「移動後の到達点だけ」を毎フレームチェックする
+// 素朴な方式だと、実際の軌跡はカプセルの内部を通過しているにもかかわらず、
+// サンプリングした2点(移動前・移動後)がどちらもカプセルの外側にある、
+// という取りこぼし(トンネリング)が起こりうる。
+//
+// これが「ダミーの向こう側を狙って投げると、ダミーではなく照準の先の地点に
+// マーカーが出てしまう」不具合の直接の原因だった: プレビュー
+// (simulateBombLanding)・実投擲(updateBombs)のどちらも、ダミーを実際には
+// 貫通しているのに命中判定を取りこぼし、そのまま奥の着地点まで飛び続けて
+// いた。
+//
+// 対策として、1回の移動距離が BOMB_COLLISION_SUBSTEP_M(=5cm、どの当たり
+// 判定半径よりも十分小さい)を超えないよう、必要な分だけ移動を自動で細かく
+// 分割(サブステップ)しながら1歩ずつ判定する共通関数
+// stepThrowablePhysics() を用意し、プレビューと実投擲の両方がこれ「だけ」を
+// 呼ぶようにする。これにより、①トンネリングが解消される、②プレビューと
+// 実際の投擲の当たり判定ロジックが完全に一致する(プレビューでは当たって
+// いたのに実際は貫通する、といった食い違いが起こらなくなる)、の2つを
+// 同時に満たす。
+//
+// 床・壁(resolveWallHit)は「無限に広がる平面」の内外判定であり、1ステップ
+// でどれだけ大きく移動しても、移動後の位置がその平面を越えたかどうかは
+// 必ず検出できる(=トンネリングが原理的に起こらない)ため、サブステップは
+// カプセル(ダミー/自分自身)への当たり判定のためだけに必要となる。
+// ==========================================================================
+const BOMB_COLLISION_SUBSTEP_M = 0.05;
+
+// pos(現在位置)・vel(現在速度)から、dt秒ぶんの弾道を安全なきざみで進める。
+// selfCheckMinTraveled が指定されている場合、投擲直後(まだ自分の体の
+// すぐ近くにある間)は自分自身への当たり判定を無視する(投げた瞬間に
+// 自爆しないようにするための猶予距離)。
+// 戻り値: 何かに命中した場合は { hit: {type, pos, normal, hitDummy} }
+//         (この場合、dtの途中で打ち切られ、以降の物理は計算されない)。
+//         命中しなかった場合は { pos, vel, traveled }(dt分進めた後の状態)。
+function stepThrowablePhysics(pos, vel, dt, traveledSoFar, maxRangeM, selfCheckMinTraveled){
+  const speed = vel.length();
+  const fullDistance = speed * dt;
+  const steps = Math.max(1, Math.ceil(fullDistance / BOMB_COLLISION_SUBSTEP_M));
+  const subDt = dt / steps;
+
+  let curPos = pos;
+  let curVel = vel.clone();
+  let traveled = traveledSoFar;
+
+  for (let s = 0; s < steps; s++){
+    curVel = curVel.clone();
+    curVel.y -= GRAVITY_MPS2 * subDt;
+    const moveVec = curVel.clone().multiplyScalar(subDt);
+    const next = curPos.clone().add(moveVec);
+    traveled += moveVec.length();
+
+    const hitDummy = dummy.hp > 0 && capsuleHitTest(
+      next, dummy.position.x, dummy.position.z, 0, HUMAN_HITBOX, QUICKBOMB_RADIUS_M
+    );
+    if (hitDummy){
+      return { hit: {
+        type: 'dummy', pos: next.clone(), hitDummy: true,
+        normal: capsuleSurfaceNormal(next, dummy.position.x, dummy.position.z, 0, HUMAN_HITBOX),
+      } };
+    }
+
+    const hitSelf = selfCheckMinTraveled !== undefined && traveled > selfCheckMinTraveled &&
+      capsuleHitTest(next, playerGroup.position.x, playerGroup.position.z, 0, HUMAN_HITBOX, QUICKBOMB_RADIUS_M);
+    if (hitSelf){
+      return { hit: {
+        type: 'self', pos: next.clone(), hitDummy: false,
+        normal: capsuleSurfaceNormal(next, playerGroup.position.x, playerGroup.position.z, 0, HUMAN_HITBOX),
+      } };
+    }
+
+    const wallHit = resolveWallHit(next);
+    if (wallHit){
+      return { hit: { type: 'wall', pos: wallHit.pos, hitDummy: false, normal: wallHit.normal } };
+    }
+
+    if (next.y <= QUICKBOMB_RADIUS_M){
+      const landPos = next.clone(); landPos.y = 0;
+      return { hit: { type: 'floor', pos: landPos, hitDummy: false, normal: new THREE.Vector3(0, 1, 0) } };
+    }
+
+    if (maxRangeM !== undefined && traveled >= maxRangeM){
+      const landPos = next.clone(); landPos.y = 0;
+      return { hit: { type: 'floor', pos: landPos, hitDummy: false, normal: new THREE.Vector3(0, 1, 0) } };
+    }
+
+    if (next.y > 30){
+      return { hit: { type: 'lost', pos: next.clone(), hitDummy: false, normal: new THREE.Vector3(0, 1, 0) } };
+    }
+
+    curPos = next;
+  }
+
+  return { pos: curPos, vel: curVel, traveled };
+}
+
+// ==========================================================================
 // 投擲プレビュー(弾道+着地点) — Eキー長押し(投擲構え)中、追尾レティクルを
 // 消して代わりに表示する。クイックボムの実測初速(QUICKBOMB_THROW_SPEED_MPS)
 // と、プレイヤーのジャンプ重力を流用したGRAVITY_MPS2(重力の公式データは
 // 未公開のため暫定値)を使い、実際の投擲(throwBomb関数、下部の「クイック
-// ボム(サブウェポン)本体」セクション参照)と全く同じ弾道式でプレビューする。
-// 「慣性込み」射程(走りながらの投擲で伸びる分)を再現するため、プレビューの
-// 初速にも現在のプレイヤー実速度(player.vx/vz)を加算している。
+// ボム(サブウェポン)本体」セクション参照)と全く同じ弾道式(stepThrowablePhysics)
+// でプレビューする。「慣性込み」射程(走りながらの投擲で伸びる分)を再現する
+// ため、プレビューの初速にも現在のプレイヤー実速度(player.vx/vz)を加算している。
 // ==========================================================================
 const THROW_ARC_SEGMENTS = 24;
 
@@ -1637,74 +1737,33 @@ function simulateBombLanding(origin, vel){
   // 分だけ進んでから判定を有効にする。
   const selfCheckMinTraveled = QUICKBOMB_RADIUS_M + HUMAN_HITBOX.radius;
   const points = [origin.clone()];
-  const v = vel.clone();
   let pos = origin.clone();
+  let vel2 = vel.clone();
   let traveled = 0;
-  let landPos = null;
-  let hitDummyFlag = false;
-  let hitType = 'floor'; // 'floor' | 'wall' | 'dummy' | 'self'
-  let hitNormal = new THREE.Vector3(0, 1, 0);
 
   for (let i = 0; i < maxSteps; i++){
-    v.y -= GRAVITY_MPS2 * simDt;
-    const moveVec = v.clone().multiplyScalar(simDt);
-    const next = pos.clone().add(moveVec);
-    traveled += moveVec.length();
-
-    const hitDummy = dummy.hp > 0 && capsuleHitTest(
-      next, dummy.position.x, dummy.position.z, 0, HUMAN_HITBOX, QUICKBOMB_RADIUS_M
-    );
-    const hitSelf = !hitDummy && traveled > selfCheckMinTraveled && capsuleHitTest(
-      next, playerGroup.position.x, playerGroup.position.z, 0, HUMAN_HITBOX, QUICKBOMB_RADIUS_M
-    );
-    const wallHit = resolveWallHit(next);
-    const hitFloor = next.y <= QUICKBOMB_RADIUS_M;
-    const rangeCapped = traveled >= maxRangeM;
-
-    if (hitDummy){
-      landPos = next.clone();
-      hitDummyFlag = true;
-      hitType = 'dummy';
-      hitNormal = capsuleSurfaceNormal(next, dummy.position.x, dummy.position.z, 0, HUMAN_HITBOX);
-      points.push(landPos);
-      break;
+    const result = stepThrowablePhysics(pos, vel2, simDt, traveled, maxRangeM, selfCheckMinTraveled);
+    if (result.hit){
+      points.push(result.hit.pos);
+      return {
+        points,
+        landPos: result.hit.pos,
+        hitDummy: result.hit.hitDummy,
+        hitType: result.hit.type,
+        hitNormal: result.hit.normal,
+      };
     }
-    if (hitSelf){
-      landPos = next.clone();
-      hitType = 'self';
-      hitNormal = capsuleSurfaceNormal(next, playerGroup.position.x, playerGroup.position.z, 0, HUMAN_HITBOX);
-      points.push(landPos);
-      break;
-    }
-    if (wallHit){
-      landPos = wallHit.pos;
-      hitType = 'wall';
-      hitNormal = wallHit.normal;
-      points.push(landPos);
-      break;
-    }
-    if (hitFloor || rangeCapped){
-      landPos = next.clone();
-      landPos.y = 0;
-      hitType = 'floor';
-      hitNormal = new THREE.Vector3(0, 1, 0);
-      points.push(landPos);
-      break;
-    }
-
-    pos = next;
+    pos = result.pos;
+    vel2 = result.vel;
+    traveled = result.traveled;
     points.push(pos.clone());
   }
-  if (!landPos){
-    // maxStepsに達しても何にも当たらなかった場合(理論上ほぼ起きないが
-    // 念のため)、最後の位置を地面に落として終点にする。
-    landPos = pos.clone();
-    landPos.y = 0;
-    hitType = 'floor';
-    hitNormal = new THREE.Vector3(0, 1, 0);
-    points.push(landPos);
-  }
-  return { points, landPos, hitDummy: hitDummyFlag, hitType, hitNormal };
+  // maxStepsに達しても何にも当たらなかった場合(理論上ほぼ起きないが
+  // 念のため)、最後の位置を地面に落として終点にする。
+  const landPos = pos.clone();
+  landPos.y = 0;
+  points.push(landPos);
+  return { points, landPos, hitDummy: false, hitType: 'floor', hitNormal: new THREE.Vector3(0, 1, 0) };
 }
 
 function updateThrowPreview(){
@@ -1766,7 +1825,9 @@ function updateThrowPreview(){
 // Eキーで構え(投擲構え、上のupdateThrowPreview参照)、離すと前隙
 // (5F/10F)ぶん遅延させてから実際に投げる。「何かしらに当たると即座に
 // 爆発する」ため、弾のようにバウンド・転がりはさせず、床/ダミー/場外の
-// いずれかに触れた瞬間その位置で即爆発させる。
+// いずれかに触れた瞬間その位置で即爆発させる。当たり判定はプレビュー
+// (simulateBombLanding)と同じ stepThrowablePhysics() を使うため、
+// プレビューで表示された着地点と実際の爆発位置は常に一致する。
 // ==========================================================================
 const bombs = [];
 let lastBombThrowAt = -Infinity;   // 最後にクイックボムを投げた時刻(performance.now())。インク回復不能時間・連続使用フレームの起点。
@@ -1824,7 +1885,10 @@ function throwBomb(){
   mesh.position.copy(origin);
   scene.add(mesh);
 
-  bombs.push({ mesh, pos: origin.clone(), vel, traveled: 0, alive: true });
+  bombs.push({
+    mesh, pos: origin.clone(), vel, traveled: 0, alive: true,
+    selfCheckMinTraveled: QUICKBOMB_RADIUS_M + HUMAN_HITBOX.radius,
+  });
 }
 
 // --------------------------------------------------------------------------
@@ -1894,52 +1958,35 @@ function explodeBomb(explosionPos, directHit, paintFloor){
   }
 }
 
-// クイックボムの弾道更新: 単純な放物運動(初速+重力のみ、main weaponの
-// ような減速/自由落下フェーズは持たない)。床・ダミー・射程ハードキャップ・
-// 場外のいずれかに触れた瞬間、即座に爆発させる(バウンドしない)。
+// クイックボムの弾道更新: stepThrowablePhysics()に1フレーム(dt)分の物理を
+// 委譲する(プレビューと完全に同じロジック)。何かに命中したらその場で
+// 即座に爆発させる(バウンドしない)。
 function updateBombs(dt){
   for (const bomb of bombs){
     if (!bomb.alive) continue;
 
-    bomb.vel.y -= GRAVITY_MPS2 * dt;
-    const moveVec = bomb.vel.clone().multiplyScalar(dt);
-    const next = bomb.pos.clone().add(moveVec);
-    bomb.traveled += moveVec.length();
+    const maxRangeM = linesToMeters(QUICKBOMB.rangeInertiaLines);
+    const result = stepThrowablePhysics(bomb.pos, bomb.vel, dt, bomb.traveled, maxRangeM, bomb.selfCheckMinTraveled);
 
-    const hitDummy = dummy.hp > 0 && capsuleHitTest(
-      next, dummy.position.x, dummy.position.z, 0, HUMAN_HITBOX, QUICKBOMB_RADIUS_M
-    );
-    const wallHit = resolveWallHit(next);
-    const hitFloor = next.y <= QUICKBOMB_RADIUS_M;
-    const rangeCapped = bomb.traveled >= linesToMeters(QUICKBOMB.rangeInertiaLines);
-    // x/z方向の場外はresolveWallHit(=壁ヒット)で先に処理されるため、ここでは
-    // 想定外に高く飛び続けた場合の安全装置としてのみ残す。
-    const leftArena = next.y > 30;
-
-    if (hitDummy){
-      explodeBomb(next.clone(), true);
-      scene.remove(bomb.mesh);
-      bomb.alive = false;
-    } else if (wallHit){
-      // 壁への着弾: このプロトタイプの塗りは地面を真上から見た二次元マップ
-      // のみのため、垂直な壁面には塗りを反映できない(paintFloor: false)。
-      // 爆発エフェクトとダメージ判定はプレビュー通りその場で発生させる。
-      explodeBomb(wallHit.pos, false, false);
-      scene.remove(bomb.mesh);
-      bomb.alive = false;
-    } else if (hitFloor || rangeCapped){
-      const landPos = next.clone();
-      landPos.y = 0;
-      explodeBomb(landPos, false);
-      scene.remove(bomb.mesh);
-      bomb.alive = false;
-    } else if (leftArena){
-      // アリーナ外へ抜けた場合は爆発させずに消す(塗り判定できないため)。
+    if (result.hit){
+      const h = result.hit;
+      if (h.type === 'dummy'){
+        explodeBomb(h.pos, true);
+      } else if (h.type === 'wall'){
+        // 壁への着弾: このプロトタイプの塗りは地面を真上から見た二次元マップ
+        // のみのため、垂直な壁面には塗りを反映できない(paintFloor: false)。
+        explodeBomb(h.pos, false, false);
+      } else if (h.type === 'floor'){
+        explodeBomb(h.pos, false);
+      }
+      // 'self'・'lost'(想定外に高く飛び続けた場合の安全装置)は爆発させずに消す。
       scene.remove(bomb.mesh);
       bomb.alive = false;
     } else {
-      bomb.pos.copy(next);
-      bomb.mesh.position.copy(next);
+      bomb.pos.copy(result.pos);
+      bomb.vel.copy(result.vel);
+      bomb.traveled = result.traveled;
+      bomb.mesh.position.copy(bomb.pos);
       // 回転させて「投げられた物」らしい見た目にする。
       bomb.mesh.rotation.x += dt * 7;
       bomb.mesh.rotation.z += dt * 5;
