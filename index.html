@@ -49,6 +49,37 @@
     background: var(--accent);
     transition: width .08s linear;
   }
+  #sp-gauge-outer{
+    width:130px; height:8px; border-radius:4px; background:#0b0c10;
+    overflow:hidden; margin-top:6px; border:1px solid #33384a;
+    position:relative;
+  }
+  #sp-gauge-inner{
+    height:100%; width:0%; background: linear-gradient(90deg, #1a8f7a, var(--accent));
+    transition: width .08s linear;
+  }
+  #sp-gauge-inner.depleting{
+    background: linear-gradient(90deg, var(--ink-dark), #ffcf7a);
+  }
+  #sp-gauge-inner.blocked{
+    background: var(--ink-dark);
+    animation: sp-blocked-pulse 1.1s ease-in-out infinite;
+  }
+  @keyframes sp-blocked-pulse{
+    0%,100%{ opacity: 0.55; }
+    50%{ opacity: 0.95; }
+  }
+  #sp-gauge-outer.ready{
+    border-color: #fff2a8;
+    box-shadow: 0 0 8px 1px rgba(255,242,168,0.7);
+    animation: sp-pulse 0.9s ease-in-out infinite;
+  }
+  @keyframes sp-pulse{
+    0%,100%{ box-shadow: 0 0 6px 0 rgba(255,242,168,0.5); }
+    50%{ box-shadow: 0 0 14px 3px rgba(255,242,168,0.95); }
+  }
+  #special-gauge-status{ font-size:10px; color: var(--muted); margin-top:3px; min-height:12px; }
+  #sub-status{ font-size:10px; color: var(--muted); margin-top:4px; }
 
   #reticle{
     position:absolute; top:0; left:0; width:0; height:0;
@@ -68,8 +99,6 @@
     background: rgba(255,255,255,.95);
     box-shadow: 0 0 0 1px rgba(0,0,0,.4);
   }
-  /* 弾の拡散(spreadDeg)がこのラインの位置まで届く可能性がある、という
-     目安を表す4本の線。中心からの距離は毎フレームJSで更新する。 */
   .reticle-line{
     position:absolute;
     background: rgba(255,255,255,.92);
@@ -78,9 +107,6 @@
   }
   .reticle-line.diagonal{ width:2px; height:13px; }
 
-  /* レティクル反応射程内で壁・床・対象に実際に弾が当たる位置へ出す
-     ターゲットレティクル。中央固定の追尾レティクル(#reticle)とは別物で、
-     ワールド上の着弾候補点を毎フレーム画面座標へ投影して配置する。 */
   #target-reticle{
     position:absolute; top:0; left:0; width:0; height:0;
     pointer-events:none; display:none;
@@ -123,10 +149,6 @@
     border-radius:6px; padding:6px 9px; pointer-events:none;
   }
 
-  /* ------------------------------------------------------------------
-     オーバーレイ共通(ポーズ／メニュー／カスタマイズ／スタブ)。2Dプロト
-     タイプ(ink-paint-prototype.html)のCSSをそのまま移植したもの。
-     ------------------------------------------------------------------ */
   .overlay{
     position:absolute; inset:0;
     background: rgba(8,9,12,0.72);
@@ -189,6 +211,7 @@
     font-family: inherit;
   }
   button:hover{ border-color: var(--ink); }
+  .weapon-pick-btn:disabled{ opacity:.55; cursor:default; }
 
   #footer-hint{
     position:absolute; bottom:12px; right:12px; font-size:11px; color: var(--muted);
@@ -203,6 +226,10 @@
     <div class="card">
       <div class="label">インク残量</div>
       <div id="ink-gauge-outer"><div id="ink-gauge-inner"></div></div>
+      <div class="label" style="margin-top:8px;">スペシャルゲージ</div>
+      <div id="sp-gauge-outer"><div id="sp-gauge-inner"></div></div>
+      <div id="special-gauge-status">–</div>
+      <div id="sub-status">サブ: –</div>
     </div>
     <div class="card">
       <div class="label">塗りポイント</div>
@@ -227,17 +254,11 @@
     <div class="target-x"><span></span><span></span></div>
   </div>
   <div id="fov-state" class="label" style="position:absolute; top:12px; left:50%; transform:translateX(-50%); background:rgba(13,14,18,.6); padding:4px 10px; border-radius:6px; border:1px solid #262a36;">FOV: 55.0°(ヒト状態)</div>
-  <div id="scope-note">移動・TPS視点・スプラシューター1丁の発射に加え、塗り判定(インクの蓄積・自陣インク判定・塗りポイント)を2Dプロトタイプから移植済み。サブウェポン「クイックボム」を実装済み(E長押しで構え→離すと投擲)。<br>他の複数武器/スペシャルは未実装(次フェーズ)。<br>右クリック長押し=イカ状態(自陣インク上なら潜行・急速回復)／Eキー長押し=クイックボムの投擲構え(離すと投擲)。</div>
+  <div id="scope-note">移動・TPS視点・スプラシューター1丁の発射に加え、塗り判定(インクの蓄積・自陣インク判定・塗りポイント)を2Dプロトタイプから移植済み。サブウェポン「クイックボム」、スペシャル6種(トルネード／スーパーショット／ダイオウイカ／ボムラッシュ／メガホンレーザー5.1ch／スーパーセンサー)を実装済み(Bキーのカスタマイズから選択、Rで発動)。<br>右クリック長押し=イカ状態(自陣インク上なら潜行・急速回復)／Eキー長押し=クイックボムの投擲構え(離すと投擲)。</div>
   <div id="footer-hint">ESC ポーズ　／　F メニュー　／　B カスタマイズ</div>
   <div id="pointerlock-prompt"><b>クリックしてマウスルックを有効化</b><br>WASD移動／マウスで視点／左クリックで発射</div>
   <div id="special-toast" class="label" style="position:absolute; top:52px; left:50%; transform:translateX(-50%); background:rgba(13,14,18,.78); padding:5px 12px; border-radius:6px; border:1px solid #262a36; color:var(--ink); opacity:0; transition:opacity .2s; pointer-events:none;">スペシャル: このプロトタイプでは未実装です</div>
 
-  <!-- ========================================================================
-       ポーズオーバーレイ(ESC)。2Dプロトタイプと同じく「ゲームに戻る・
-       塗りリセット」を選べる(このプロトタイプには「射撃場を退出」に相当する
-       別モードが無いため、その項目は割愛した)。開いている間は時が止まる
-       (=update系の呼び出しをスキップする。mainループのoverlay判定を参照)。
-       ======================================================================== -->
   <div id="pause-overlay" class="overlay hidden">
     <div class="overlay-panel">
       <h2>ポーズ</h2>
@@ -248,10 +269,6 @@
     </div>
   </div>
 
-  <!-- ========================================================================
-       メニューオーバーレイ(F)。射撃場・オプション・ヘルプの3タブ構成
-       (2Dプロトタイプ踏襲)。
-       ======================================================================== -->
   <div id="menu-overlay" class="overlay hidden">
     <div class="overlay-panel">
       <h2>メニュー</h2>
@@ -265,16 +282,13 @@
     </div>
   </div>
 
-  <!-- ========================================================================
-       カスタマイズオーバーレイ(B)。このプロトタイプはまだスプラシューター
-       1丁のみのため、ブキ一覧は「選択中(変更不可)」の表示に留め、感度設定
-       だけを実際に機能させる。
-       ======================================================================== -->
   <div id="customize-overlay" class="overlay hidden">
     <div class="overlay-panel">
       <h2>カスタマイズ</h2>
       <h3>メインウェポン</h3>
       <div id="customize-weapon-list"></div>
+      <h3>スペシャル</h3>
+      <div id="customize-special-list"></div>
       <h3>感度</h3>
       <div class="sensitivity-row">
         <input type="range" id="sensitivity-slider" min="1" max="10" step="1" value="5">
@@ -284,9 +298,6 @@
     </div>
   </div>
 
-  <!-- ========================================================================
-       未実装機能向けの簡易スタブオーバーレイ(ロビーメニュー[Q]・マップ[M]用)。
-       ======================================================================== -->
   <div id="stub-overlay" class="overlay hidden">
     <div class="overlay-panel">
       <h2 id="stub-title">–</h2>
@@ -299,304 +310,256 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 /* ==========================================================================
-   3D TPS PROTOTYPE — scope for this milestone
+   3D TPS PROTOTYPE — base (movement/camera/weapon/paint) + SPECIALS PORT
    --------------------------------------------------------------------------
-   Ported from the 2D top-down ink prototype. This step covers:
-     - third-person camera (mouse look via pointer lock, orbiting behind
-       the player at a fixed offset)
-     - WASD movement relative to camera facing
-     - a single weapon (スプラシューター) firing on left-click hold, with
-       the same fire-interval / ink-cost / range figures as the 2D version
-     - a practice dummy target with HP/respawn, so the feel of the weapon
-       can be judged directly
-     - インク塗りシステム(2Dプロトタイプ ink-paint-prototype.html からの
-       移植)。coverageLayer/paintLayerの二層構成を、ワールドのXZ平面
-       (地面)へマッピングしたキャンバスとして持ち、CanvasTextureとして
-       地面のマテリアルに貼り付ける形で3D化した。着弾塗り(伸び形状)・
-       足元塗り・中間塗り・塗りポイントの実面積集計はすべて2D版と
-       同じロジックをそのまま使っている。「自陣インク上か」の判定
-       (isOnOwnInk/sampleInkAt)もcoverageLayerの実データを直接参照する
-       ようになり、以前の「デカールへの近接判定による近似」は廃止した。
-     - 2Dプロトタイプの操作方法一式(照準ロック・ジャンプ・スペシャル発動
-       キー・ポーズ/メニュー/カスタマイズ/ロビー/マップの各オーバーレイと
-       それらを開くキー)を移植。オーバーレイ・スペシャル・ジャンプ周りの
-       詳細は各セクションのコメントを参照。
-     - サブウェポン「クイックボム」(Eキーで構え→離すと投擲)。前隙/後隙/
-       連続使用フレーム/インク消費・回復不能時間・直撃/近距離爆風/遠距離
-       爆風ダメージ・塗り半径/塗りポイントをwiki実測値ベースで実装。
-       詳細はQUICKBOMB定数と「クイックボム(サブウェポン)本体」セクションの
-       コメントを参照。
-
-   NOT yet ported (left for a later pass, once this movement/camera/weapon
-   core feels right):
-     - the other two weapons, もう一方のスペシャル(Rキーは受け付けるが、
-       実際に発動するスペシャルはまだ無いためスタブ扱い)
-     - walls/obstacles
-     - チーム(敵)インクの概念 — このプロトタイプには自陣インクしか無い
-       ため、「敵インク上でイカダッシュ不可」は引き続き未実装
-
-   Movement now uses a real acceleration model (see getCurrentAccelMPerS2 /
-   getTargetSpeedMPerS / updateMovement): base 0.01m/F² accel toward the
-   weight-class-correct human/squid target speed, 0.02m/F² during
-   firing/sub-special action states, and a Bold-Marker-only 0.015m/F²
-   squid exception (currently unused since WEAPON.isBoldMarker is false).
-
-   Camera fix: the camera previously sat IN FRONT of the player (offset
-   along +forward instead of -forward), and the WASD/shot-direction math
-   had a matching sign flip that happened to cancel out internally. Both
-   are now unified through getAimDirection()/getFlatForward()/
-   getFlatRight() so camera look direction, movement direction, and shot
-   direction all agree, with the camera correctly trailing behind the
-   player along the aim direction.
-
-   FOV: camera.fov IS the vertical FOV (fovy) in Three.js — fovx is derived
-   internally from fovy+aspect, so the given table's fovy values (55°/60°/
-   38°) are set directly, with a smooth lerp between states. squid form and
-   投擲構え are stubbed as FOV-only states for now (right-click / E key)
-   since the underlying mechanics aren't ported yet.
-
-   潜伏(見た目が消える)状態は「自陣インク上」かつ「地面に接している」時
-   のみで、grounded フラグに加えて実際のプレイヤーY座標も二重チェックする
-   (updatePlayerVisual 内)。これにより、grounded の更新タイミングに何らかの
-   ズレが生じても、空中に浮いている間は必ずイカの姿が表示されるようにして
-   ある。
-
-   塗り跡の発生起点(重要): 着弾塗り・軌跡塗り・足元塗りは、すべて実際に
-   空間内を移動する「物」(インクの弾のメッシュ、または落下中のインクの雫
-   =fallingInkDrops)が実際に床(y<=0)へ到達した"その位置"だけを起点に発生
-   する。以前は「射程(maxRangeLines)に達したら、まだ弾が空中にあっても
-   即着弾扱いにする」「発射地点⇔着弾地点を直線で結んで軌跡ドットを配置する」
-   「足元塗りをプレイヤーの現在XZ座標へ高さに関わらず即時発生させる」という、
-   見た目の物体(弾/プレイヤー)の実際の動きとは別に塗りだけが決まる実装
-   だったため、弾が"見た目だけ"のものになっていた。現在は:
-     - 着弾塗り: updateProjectiles内で弾が実際にnext.y<=0へ到達した瞬間、
-       その位置(y=0にクランプ)へ発生する(paintImpactSplat)。
-     - 軌跡塗り: 同じくupdateProjectiles内で、弾の実測飛行距離(p.traveled)
-       が一定間隔を超えるたびに、弾の"現在位置"p.posを起点にリアルタイムで
-       発生する(直線補間ではなく実際の弾道)。
-     - 足元塗り: spawnFallingInkDrop()で、プレイヤーの現在の3D座標・速度
-       (player.vx/vy/vz)を初速とする落下インクの雫を生成し、
-       updateFallingInkDrops()が毎フレーム重力で落下させ、実際にy<=0へ
-       到達した位置で発生する。プレイヤーが接地中なら従来通り即時発生する。
+   This build ports the six specials from the 2D prototype
+   (ink-paint-prototype.html: トルネード／スーパーショット／ダイオウイカ／
+   ボムラッシュ／メガホンレーザー5.1ch／スーパーセンサー) into this 3D TPS
+   prototype. Numeric timings/points are kept identical to the 2D source;
+   distances are converted line->meters via linesToMeters(), and visuals are
+   re-implemented with Three.js primitives (the 2D version's canvas-blob
+   swirl effects are approximated with simple rotating meshes/rings).
    ========================================================================== */
 
-// --------------------------------------------------------------------------
-// Unit system: reuse the 2D prototype's line/meter convention so weapon
-// numbers stay comparable. 1 line = 5m. Real-world Three.js units below are
-// meters (1 unit = 1m).
-// --------------------------------------------------------------------------
 const METERS_PER_LINE = 5;
 const DU_PER_METER = 10;
 const FPS = 60;
 function duPerFrameToMPerSec(v){ return (v / DU_PER_METER) * FPS; }
-// DU/F² (1フレームあたりの速度変化量、DU単位) を m/s² へ変換。
-// 1フレーム = 1/FPS 秒なので、フレーム基準の加速度を秒基準にするには FPS² を掛ける。
 function duPerF2ToMPerS2(v){ return (v / DU_PER_METER) * FPS * FPS; }
 function framesToSeconds(f){ return f / FPS; }
 function linesToMeters(n){ return n * METERS_PER_LINE; }
 
-// スプラシューター — same figures as the 2D prototype (see
-// ink-paint-prototype.html WEAPONS[0] for the annotated source/derivation).
 const WEAPON = {
   name: 'スプラシューター',
-  weightClass: 'medium', // 中量級。スプラシューターは重量/軽量どちらの専用ギア補正も前提にしない標準速度帯のブキとして分類。
-  isBoldMarker: false,   // ボールドマーカーのみイカ速の加速度が特別(基準の1.5倍)になるための判定フラグ。
+  weightClass: 'medium',
+  isBoldMarker: false,
   maxRangeLines: 2.7,
   fireIntervalSec: framesToSeconds(6),
   inkPerShot: 100 / 108,
-  speedDU: 22, // 公式実測値(初速22DU/F、直進距離88DU=22×4Fと整合)。以前の22.66は誤りだったため修正。
+  speedDU: 22,
   damageFalloff: { startFrame: 8, startDamage: 36.0, endFrame: 40, endDamage: 18.0, perFrameDecay: 0.5625 },
   spreadDeg: 4.86,
 
-  // ---- 塗り関連パラメータ(2Dプロトタイプ ink-paint-prototype.html の
-  // スプラシューターの実測値をそのまま移植) ----
-  splatRadiusFalloff: { startDist: 0.22, startRadius: 0.39, endDist: 4.00, endRadius: 0.34 }, // 着弾塗り半径(ライン)
-  stretchFalloff: { startDist: 0.22, startRatio: 2.24, endDist: 4.00, endRatio: 1.12 },       // 着弾塗りの前方伸び率
-  footPaintAvgInterval: 4,     // 足元塗り: 平均4発に1回
-  footPaintRadiusLines: 0.41,  // 足元塗り半径(ライン)
-  midPaintIntervalLines: 1.84, // 中間塗りの間隔(ライン)
-  midPaintAvgPerShot: 1.5,     // 中間塗りの1発あたり平均個数
-  midPaintRadiusLines: 0.29,   // 中間塗りの半径(ライン)
-  singleShotPaintPoints: 4.0,  // 単発塗りポイント(1発で塗れる上限pt)
+  splatRadiusFalloff: { startDist: 0.22, startRadius: 0.39, endDist: 4.00, endRadius: 0.34 },
+  stretchFalloff: { startDist: 0.22, startRatio: 2.24, endDist: 4.00, endRatio: 1.12 },
+  footPaintAvgInterval: 4,
+  footPaintRadiusLines: 0.41,
+  midPaintIntervalLines: 1.84,
+  midPaintAvgPerShot: 1.5,
+  midPaintRadiusLines: 0.29,
+  singleShotPaintPoints: 4.0,
 
-  // ========================================================================
-  // 弾道パラメータ (A)~(H) — ①直進状態 → ②減速状態 → ③自由落下状態、の
-  // 3段階遷移モデル(ユーザー提供の仕様に準拠)。
-  //   (A)初速 / (B)直進フレーム数 / (C)直進終了時最大速度 /
-  //   (D)減速時の空気抵抗 / (E)減速時の重力 / (F)減速状態の下限速度(XZ・Y別) /
-  //   (G)自由落下時の空気抵抗 / (H)自由落下時の重力
-  //
-  // 数値の出典について:
-  //   (A)はダメージ計算などで既に使っているspeedDUと同じ値(実測に基づく確定値。
-  //   公式実測: 初速22DU/F、直進距離88DU=22DU/F×4Fと整合)。
-  //   (H)と(G)は、スプラトゥーン3攻略Wikiの「システム詳細仕様」ページにある
-  //   「(自由落下時の重力は)シューター種では全て0.016に設定されている」
-  //   「(自由落下時の空気抵抗は)シューター種ではなぜか.52ガロンにのみ
-  //   パラメータが存在し0.02となっている(=他シューターは0)」という記述に
-  //   基づく、シューター種共通の確定(に近い)値。
-  //   (B)は公式実測値(直進フレーム4F)が判明したため確定値に更新済み。
-  //   (C)(D)(E)(F)はスプラシューター個別の実測データが見つからなかった
-  //   ため、【要検証】の暫定値。同Wikiの定性的な記述
-  //   (「シューター種は(A)に対して(C)が総じて小さく、ブレーキ状態になると
-  //   極端に減速する」「実測ではシューター系の弾はブレーキ開始から4F程度で
-  //   自由落下状態に移行しているように見える」)から、それらしい挙動になる
-  //   よう仮に置いた値。正確な数値が判明次第ここだけ差し替えれば良いように、
-  //   他のロジックとは独立させてある。
-  // ========================================================================
   ballistics: {
-    A_initialSpeedDU: 22,         // 確定値(=speedDUと同じ、公式実測: 初速22DU/F)
-    B_straightFrames: 4,         // 確定値(公式実測: 直進フレーム4F、直進距離88DU=22×4と整合)
-    C_brakeMaxSpeedDU: 5.5,      // 【要検証・暫定】(A)よりかなり小さい値にしてある
-    D_brakeDrag: 0.35,           // 【要検証・暫定】1Fごとに(1-D)倍
-    E_brakeGravityDU: 0.05,      // 【要検証・暫定】DU/F²相当(Y速度から毎F減算)
-    F_floorSpeedDU: { xz: 0.3, y: 0.3 }, // 【要検証・暫定】これを共に下回ると自由落下へ
-    G_freefallDragDU: 0,         // シューター種共通の確定値(.52ガロン以外は0)
-    H_freefallGravityDU: 0.016,  // シューター種共通の確定値(DU/F²相当)。ユーザー提供データでも FreeGravity:0.016 として再確認済み。
+    A_initialSpeedDU: 22,
+    B_straightFrames: 4,
+    C_brakeMaxSpeedDU: 5.5,
+    D_brakeDrag: 0.35,
+    E_brakeGravityDU: 0.05,
+    F_floorSpeedDU: { xz: 0.3, y: 0.3 },
+    G_freefallDragDU: 0,
+    H_freefallGravityDU: 0.016,
   },
 
-  // ========================================================================
-  // 射撃前隙・射撃後隙・インク回復不能時間(公式実測値)
-  // ========================================================================
-  startupFramesHuman: 2,   // 射撃前隙(ヒト): 2F
-  startupFramesSquid: 10,  // 射撃前隙(イカ→ヒト即撃ち): 10F
-  postFireLockFrames: 4,   // 射撃後隙: 4F(この間、イカ状態への変形・サブ構えを禁止)
-  inkRegenLockoutFrames: 20, // インク回復不能時間: 20F(最終発射から自然回復が始まるまでの猶予)
-  shootMoveSpeedDU: 0.72,  // 射撃時ヒト速: 0.72DU/F(公式実測。以前はプレースホルダーの2.6m/s固定だった)
+  startupFramesHuman: 2,
+  startupFramesSquid: 10,
+  postFireLockFrames: 4,
+  inkRegenLockoutFrames: 20,
+  shootMoveSpeedDU: 0.72,
 
-  // ========================================================================
-  // 拡散・連射精度補正(公式実測値)
-  // --------------------------------------------------------------------------
-  // Splatoonの「連射精度補正」は、撃ち続けるほど拡散が悪化し(補正悪化量ずつ
-  // 蓄積、最大値で頭打ち)、撃つのをやめると一定レートで回復する、という
-  // スタック式のモデル。ここでは以下のように単純化して実装する(コード内
-  // currentCorrectionDeg として毎フレーム更新):
-  //   ・1発撃つごとに correctionGrowthPerShotDeg を加算(最大 maxCorrectionDeg まで)。
-  //     1発目は initialCorrectionDeg から始まる。
-  //   ・撃っていない間は毎フレーム recoveryPerFrameDeg ずつ減算(0が下限)。
-  //   ・実際に使う拡散角 = (接地時はWEAPON.spreadDeg / 空中はjumpSpreadDeg)
-  //     + currentCorrectionDeg + (空中時のみ jumpShotCorrectionDeg を追加)。
-  // 正式な計算式(初弾補正のかかり方や最低補正への収束式など)は攻略Wiki等の
-  // 更に詳細な仕様に基づくため、ここでは公式実測値をなるべく素直に反映した
-  // 近似モデルである点に留意。
-  // ========================================================================
-  jumpSpreadDeg: 11.66,            // ジャンプ中拡散
-  jumpShotCorrectionDeg: 4.664,    // ジャンプ撃ち補正(空中発射時に追加される拡散)
-  initialCorrectionDeg: 0.0486,    // 初弾補正
-  correctionGrowthPerShotDeg: 0.0486, // 補正悪化量(1発ごと)
-  maxCorrectionDeg: 1.215,         // 最低補正(=補正の最大到達値。144F撃ち続けた時点の値)
-  correctionRecoveryPerFrameDeg: 0.0729, // 補正回復量(1Fごと、撃っていない間)
+  jumpSpreadDeg: 11.66,
+  jumpShotCorrectionDeg: 4.664,
+  initialCorrectionDeg: 0.0486,
+  correctionGrowthPerShotDeg: 0.0486,
+  maxCorrectionDeg: 1.215,
+  correctionRecoveryPerFrameDeg: 0.0729,
 
-  // ========================================================================
-  // 弾の当たり判定サイズ(公式実測値、単位はDU=直径)
-  // ========================================================================
-  bulletDiameterEnemyDU: 0.114,   // 弾の大きさ(敵): イカ・タコ/オブジェクトへの当たり判定
-  bulletDiameterTerrainDU: 0.08,  // 弾の大きさ(地形): 地形への当たり判定
+  bulletDiameterEnemyDU: 0.114,
+  bulletDiameterTerrainDU: 0.08,
 };
 
-// ==========================================================================
-// クイックボム(サブウェポン) — wiki実測値ベース。
-//   インク消費量: 45% / インク回復不能時間: 60F(1.00秒)
-//   ダメージ(直撃): 25.0 ※直撃そのもののダメージ。実際に直撃させた場合、
-//     1F後に近距離爆風35.0が追加でヒットする2ヒット構成(合計60.0)。
-//     このプロトタイプでは簡略化し、直撃した瞬間に25.0+35.0=60.0を
-//     まとめて1回で与える(同期ズレによる「直撃25.0のみ」のケースは省略)。
-//   ダメージ(近距離爆風): 35.0 / 半径0.56ライン
-//   ダメージ(遠距離爆風): 25.0 / 半径0.80ライン
-//   塗り面積: 15p / 塗り半径: 0.80ライン
-//   投擲初速: 11.2(DU/F) / 射程: 3.0ライン(慣性込み 5.0ライン)
-//   前隙(イカ): 10F / 前隙(ヒト): 5F
-//   連続使用フレーム: 30F(0.500秒) / 後隙: 10F
-// 「何かしらに当たると即座に爆発する」= 床・壁・オブジェクト・敵、最初に
-// 触れた物で即着弾即爆発(バウンドしない)。
-// ==========================================================================
 const QUICKBOMB = {
   name: 'クイックボム',
-  inkCostPercent: 45,             // インク消費量: 45%
-  inkRegenLockoutFrames: 60,      // インク回復不能時間: 60F(1.00秒)
-  damageDirect: 25.0,             // ダメージ(直撃)
-  damageNear: 35.0,               // ダメージ(近距離爆風)
-  damageNearRadiusLines: 0.56,    // ダメージ半径(近距離)
-  damageFar: 25.0,                // ダメージ(遠距離爆風)
-  damageFarRadiusLines: 0.80,     // ダメージ半径(遠距離)
-  paintPoints: 15,                // 塗り面積: 15p(単発塗りポイントの上限)
-  paintRadiusLines: 0.80,         // 塗り半径: 0.80ライン
-  throwSpeedDU: 11.2,             // 投擲初速(DU/F)
-  rangeLines: 3.0,                // 射程(慣性なし)
-  rangeInertiaLines: 5.0,         // 射程(慣性込み=助走をつけて投げた場合の最大値)
-  startupFramesSquid: 10,         // 前隙(イカ→ヒト遷移込み)
-  startupFramesHuman: 5,          // 前隙(ヒト)
-  minThrowIntervalFrames: 30,     // 連続使用フレーム(2投目までの最短間隔)
-  postThrowLockFrames: 10,        // 後隙
+  inkCostPercent: 45,
+  inkRegenLockoutFrames: 60,
+  damageDirect: 25.0,
+  damageNear: 35.0,
+  damageNearRadiusLines: 0.56,
+  damageFar: 25.0,
+  damageFarRadiusLines: 0.80,
+  paintPoints: 15,
+  paintRadiusLines: 0.80,
+  throwSpeedDU: 11.2,
+  rangeLines: 3.0,
+  rangeInertiaLines: 5.0,
+  startupFramesSquid: 10,
+  startupFramesHuman: 5,
+  minThrowIntervalFrames: 30,
+  postThrowLockFrames: 10,
 };
-// 投擲初速をm/sへ変換(main weaponのspeedDUと同じduPerFrameToMPerSec変換を
-// 流用)。重力は公式データが見つからなかったため、プレイヤーのジャンプ
-// 重力(GRAVITY_MPS2、後方のMovementセクションで定義)を流用する暫定値
-// (投擲プレビュー/実投擲の両方でこの値を共有する)。
 const QUICKBOMB_THROW_SPEED_MPS = duPerFrameToMPerSec(QUICKBOMB.throwSpeedDU);
-// 見た目のサイズに合わせた当たり判定半径(公式の当たり判定サイズ値は
-// 未公開のため、参考画像のボム形状に基づく近似値)。
 const QUICKBOMB_RADIUS_M = 0.16;
 
-// (B)(C)(D)(E)(F)(G)(H) をm/s・m/s²系へ変換した実働定数。DU/F系の生値は
-// WEAPON.ballistics側にコメント付きで残し、ここではシミュレーションで直接
-// 使う形に変換したものだけをまとめておく。
 const BALLISTICS_MPS = (() => {
   const b = WEAPON.ballistics;
   return {
     straightFrames: b.B_straightFrames,
     brakeMaxSpeed: duPerFrameToMPerSec(b.C_brakeMaxSpeedDU),
-    brakeDrag: b.D_brakeDrag,               // 無次元(1Fあたりの減衰率)なのでそのまま
+    brakeDrag: b.D_brakeDrag,
     brakeGravity: duPerF2ToMPerS2(b.E_brakeGravityDU),
     floorSpeedXZ: duPerFrameToMPerSec(b.F_floorSpeedDU.xz),
     floorSpeedY: duPerFrameToMPerSec(b.F_floorSpeedDU.y),
-    freefallDrag: b.G_freefallDragDU,       // 無次元
+    freefallDrag: b.G_freefallDragDU,
     freefallGravity: duPerF2ToMPerS2(b.H_freefallGravityDU),
   };
 })();
 
-// 弾の当たり判定半径(m)。公式値は直径(DU)なので ÷2 して半径にし、
-// DU_PER_METER で割って m 単位へ変換する。
 const BULLET_RADIUS_ENEMY_M = (WEAPON.bulletDiameterEnemyDU / 2) / DU_PER_METER;
 const BULLET_RADIUS_TERRAIN_M = (WEAPON.bulletDiameterTerrainDU / 2) / DU_PER_METER;
-
-// 「レティクル反応射程」— 実際の弾の飛距離/ダメージ射程(maxRangeLines)とは
-// 別の概念。照準を合わせた際に対象レティクル(オレンジの◯/◯+×)が
-// 表示されるかどうかだけを決める判定距離で、公式実測値(レティクル反応射程
-// 2.4ライン)が判明したため、それを直接使う。
 const RETICLE_RESPONSE_RANGE_LINES = 2.4;
 
-// ==========================================================================
-// 移動速度テーブル (DU/フレーム) — ブキ重量ごとの実データ。
-// ヒト速は自分のインク上/塗れない床の上でも変化しない(仕様通り一定)。
-// イカ速は「自陣インク上」「インクのない床・塗れない床」で分岐する。
-// 「敵インク上ではイカダッシュ不可(泳げない)」は、このプロトタイプに
-// まだチーム/敵インクの概念が無いため未実装(コメントで明記のみ)。
-// ==========================================================================
 const HUMAN_SPEED_DU_PER_F = { light: 1.04, medium: 0.96, heavy: 0.88 };
 const SQUID_SPEED_ON_INK_DU_PER_F = { light: 2.016, medium: 1.920, heavy: 1.728 };
-const SQUID_SPEED_OFF_INK_DU_PER_F = 0.66; // 全ブキ重量共通、ギアの影響も受けない
+const SQUID_SPEED_OFF_INK_DU_PER_F = 0.66;
 
-// ==========================================================================
-// 加速度の基準値 (DU/F²)
-//  - 基準: 0.1 (ヒト速・イカ速・重量問わず、通常はこの値で目標速度へ加減速)
-//  - ボールドマーカーのみイカ速加速度が 0.15 (基準の1.5倍。ヒト速は基準のまま)
-//  - メイン射撃中／サブ・スペシャル攻撃中・構えモーション中は 0.2 (基準の2倍)。
-//    ボールドマーカーでこの状態になっても 0.15×2=0.3 にはならず 0.2 のまま。
-// ==========================================================================
 const ACCEL_BASE_DU_PER_F2 = 0.1;
 const ACCEL_BOLD_SQUID_DU_PER_F2 = 0.15;
 const ACCEL_ACTION_DU_PER_F2 = 0.2;
 
+// ==========================================================================
+// スペシャルウェポン定義 — 2Dプロトタイプ(ink-paint-prototype.html)の
+// TORNADO_SPECIAL / SUPER_SHOT_SPECIAL / DAIOU_IKA_SPECIAL / BOMB_RUSH_SPECIAL
+// / MEGALASER_SPECIAL / SUPER_SENSOR_SPECIAL をそのまま移植した数値。
+// 距離(ライン)は使用時に linesToMeters() でメートルへ変換する。
+// ==========================================================================
+const TORNADO_SPECIAL = {
+  name: 'トルネード', type: 'tornado',
+  requiredPoints: 180,
+  activateDelayFrames: 20,
+  holdMoveSpeedDU: 1.00,
+  maxHoldFrames: 360,
+  throwRangeLines: 6.2,
+  throwSpeedDU: 10.0,
+  preThrowFrames: 14,
+  postThrowFrames: 19,
+  guideToImpactFrames: 82,
+  radiusGrowFrames: 54,
+  startRadiusLines: 0.5,
+  finalDamageRadiusLines: 1.0,
+  finalPaintRadiusLines: 1.2,
+  damageDurationFrames: 90,
+  burstVisualFrames: 60,
+  damageStart: 10.0,
+  damagePerFrameDecay: 5 / 60,
+  paintPoints: 60,
+  dissolveFrames: 24,
+};
+const SUPER_SHOT_SPECIAL = {
+  name: 'スーパーショット', type: 'supershot',
+  requiredPoints: 220,
+  directHitRangeLines: 7,
+  splatRadiusLines: 0.25,
+  damageDirect: 150.0,
+  durationFrames: 360,
+  fireIntervalSec: framesToSeconds(55),
+  activateDelayFrames: 55.2,
+  preShotFrames: 15,
+  postShotFrames: 40,
+  walkSpeedDU: 0.70,
+  squidSpeedDU: 1.82,
+  shootMoveSpeedDU: 0.40,
+  projectileSpeedDU: 20.0,
+  directFrames: 18,
+  trailRadiusLines: 0.25,
+  trailDropCount: 18,
+  tipSplatRadiusLines: 0.25,
+  footPaintRadiusLines: 0.25,
+  projectileRadiusLines: 0.125,
+};
+const DAIOU_IKA_SPECIAL = {
+  name: 'ダイオウイカ', type: 'daioika',
+  requiredPoints: 200,
+  activateDelayFrames: 30,
+  durationFrames: 300,
+  detransformDelayFrames: 45,
+  moveSpeedDU: 1.92,
+  moveTrailHalfWidthMeters: 1,
+  spinDamage: 164.6,
+  spinDamageRadiusLines: 0.3,
+  spinRiseFrames: 25,
+  spinFallFrames: 30,
+  landingSplatRadiusLines: 0.4,
+  hitboxDiameterMeters: 2.4,
+};
+const BOMB_RUSH_SPECIAL = {
+  name: 'ボムラッシュ', type: 'bombrush',
+  requiredPoints: 180,
+  activateDelayFrames: 12,
+  durationFrames: 360,
+};
+const MEGALASER_SPECIAL = {
+  name: 'メガホンレーザー5.1ch', type: 'megalaser',
+  requiredPoints: 200,
+  activateDelayFrames: 6,
+  setCount: 3,
+  lasersPerSet: 2,
+  setIntervalFrames: 36,
+  telegraphFrames: 20,
+  laserDurationFrames: 180,
+  damagePerTick: 3.5,
+  damageTickIntervalFrames: 5,
+  lockOnAngleDeg: 160.0,
+  trackingDelaySec: 0.5,
+  postDelayFrames: 40,
+};
+const MEGALASER_GAUGE_DRAIN_TOTAL_FRAMES =
+  MEGALASER_SPECIAL.activateDelayFrames +
+  (MEGALASER_SPECIAL.setCount - 1) * MEGALASER_SPECIAL.setIntervalFrames +
+  MEGALASER_SPECIAL.telegraphFrames +
+  MEGALASER_SPECIAL.laserDurationFrames;
+const SUPER_SENSOR_SPECIAL = {
+  name: 'スーパーセンサー', type: 'supersensor',
+  requiredPoints: 200,
+  activateDelayFrames: 2,
+  durationFrames: 540,
+};
+const SPECIALS = [TORNADO_SPECIAL, SUPER_SHOT_SPECIAL, DAIOU_IKA_SPECIAL, BOMB_RUSH_SPECIAL, MEGALASER_SPECIAL, SUPER_SENSOR_SPECIAL];
+const SPECIAL_TYPES_WITHOUT_GAUGE_LOCK = ['supersensor'];
+
 const player = {
   ink: 100, maxInk: 100,
-  regenRate: 10, // ink/sec — ヒト状態のときの自然回復レート(2D版と同じ)
-  swimRegenRate: 32, // ink/sec — イカ状態かつ自陣インク上のときの急速回復レート(2D版から移植)
-  vx: 0, vz: 0, // 現在の実速度 (m/s, ワールド座標)。加速度システムにより毎フレーム目標速度へ漸近する。
+  regenRate: 10,
+  swimRegenRate: 32,
+  vx: 0, vz: 0,
   humanSpeed: duPerFrameToMPerSec(HUMAN_SPEED_DU_PER_F[WEAPON.weightClass]),
   squidSpeedOnInk: duPerFrameToMPerSec(SQUID_SPEED_ON_INK_DU_PER_F[WEAPON.weightClass]),
   squidSpeedOffInk: duPerFrameToMPerSec(SQUID_SPEED_OFF_INK_DU_PER_F),
-  shootSpeed: duPerFrameToMPerSec(WEAPON.shootMoveSpeedDU),  // 射撃時ヒト速(公式実測 0.72DU/F)。以前の2.6m/s固定プレースホルダーから更新。
+  shootSpeed: duPerFrameToMPerSec(WEAPON.shootMoveSpeedDU),
+
+  // ---- スペシャル状態(2D版のplayer.special*を移植) ----
+  specialIndex: 0,
+  spGauge: 0,
+  spGaugeMax: SPECIALS[0].requiredPoints,
+  specialActive: false,
+  specialPhase: 'none',
+  specialPhaseFramesLeft: 0,
+  specialUsableFramesLeft: 0,
+  specialThrowFramesElapsed: 0,
+  specialThrowPending: false,
+  specialPostThrowFramesLeft: 0,
+  spLockedFramesLeft: 0,
+  supershotPreShotFramesLeft: 0,
+  daiouSpinActive: false,
+  daiouSpinFramesLeft: 0,
+  daiouSpinPhase: 'rise',
+  daiouSpinHitDone: false,
+  sensorJumpFramesLeft: 0,
+  sensorJumpTotalFrames: 0,
 };
+function currentSpecial(){ return SPECIALS[player.specialIndex]; }
+function specialDisplayName(sp){
+  if (sp.type === 'bombrush') return `${QUICKBOMB.name}ラッシュ`;
+  return sp.name;
+}
 
 // ==========================================================================
 // Scene setup
@@ -620,7 +583,6 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// Lighting
 scene.add(new THREE.AmbientLight(0x8890a8, 0.7));
 const sun = new THREE.DirectionalLight(0xfff2d8, 1.1);
 sun.position.set(30, 50, 20);
@@ -630,11 +592,7 @@ sun.shadow.camera.top = 60; sun.shadow.camera.bottom = -60;
 sun.shadow.mapSize.set(2048, 2048);
 scene.add(sun);
 
-// Ground — a practice-range floor with a faint line grid, matching the
-// 1-line(5m) spacing used in the 2D version's markers. The material's
-// `map` gets replaced by the paint system's CanvasTexture further below
-// (see "インク塗りシステム"), once ARENA_SIZE/WALL_HALF are available.
-const ARENA_SIZE = linesToMeters(20); // 100m square, same order of size as the 2D canvas arena
+const ARENA_SIZE = linesToMeters(20);
 const groundGeo = new THREE.PlaneGeometry(ARENA_SIZE, ARENA_SIZE);
 const groundMat = new THREE.MeshStandardMaterial({ color: 0x2a2d38, roughness: 0.95 });
 const ground = new THREE.Mesh(groundGeo, groundMat);
@@ -648,8 +606,6 @@ grid.material.opacity = 0.35;
 grid.material.transparent = true;
 scene.add(grid);
 
-// Boundary walls (simple visual + collision box) so the player can't walk
-// off the practice range.
 const WALL_HALF = ARENA_SIZE / 2;
 function clampToArena(x, z, margin){
   return {
@@ -658,27 +614,18 @@ function clampToArena(x, z, margin){
   };
 }
 
-// ==========================================================================
-// 壁(アリーナ境界)判定 — 現在このプロトタイプに専用の壁メッシュは無いが、
-// WALL_HALFで区切られたアリーナの外周を「壁」として扱う。クイックボムの
-// 投擲プレビュー(simulateBombLanding)と実際の投擲(updateBombs)の両方から
-// 共通で呼び出し、境界を越えた瞬間の壁面上のクランプ位置と、壁から室内側
-// へ向かう法線ベクトル(マーカーをその壁と平行に=面一に貼り付けるための
-// 向き)を返す。境界を越えていなければnullを返す。
-// ==========================================================================
 function resolveWallHit(pos){
-  const exceedXPos = pos.x - WALL_HALF;   // 東側の壁をどれだけ越えたか(>0で越えている)
-  const exceedXNeg = -WALL_HALF - pos.x;  // 西側の壁をどれだけ越えたか
-  const exceedZPos = pos.z - WALL_HALF;   // 南側の壁をどれだけ越えたか
-  const exceedZNeg = -WALL_HALF - pos.z;  // 北側の壁をどれだけ越えたか
+  const exceedXPos = pos.x - WALL_HALF;
+  const exceedXNeg = -WALL_HALF - pos.x;
+  const exceedZPos = pos.z - WALL_HALF;
+  const exceedZNeg = -WALL_HALF - pos.z;
   const exceedX = Math.max(exceedXPos, exceedXNeg, 0);
   const exceedZ = Math.max(exceedZPos, exceedZNeg, 0);
-  if (exceedX <= 0 && exceedZ <= 0) return null; // どちらの境界も越えていない
+  if (exceedX <= 0 && exceedZ <= 0) return null;
 
   const clamped = pos.clone();
   let normal;
   if (exceedX >= exceedZ){
-    // X方向の境界を先に越えた: 壁面はX一定の垂直面、法線は室内向き(∓X)。
     const isPositiveSide = exceedXPos > exceedXNeg;
     clamped.x = isPositiveSide ? WALL_HALF : -WALL_HALF;
     normal = new THREE.Vector3(isPositiveSide ? -1 : 1, 0, 0);
@@ -691,31 +638,14 @@ function resolveWallHit(pos){
 }
 
 // ==========================================================================
-// インク塗りシステム(2Dプロトタイプ ink-paint-prototype.html からの移植)
-// --------------------------------------------------------------------------
-// 2D版のcoverageLayer/paintLayerの二層構成をそのまま踏襲する:
-//   coverageLayer: wiki準拠の形状のみを描く「データ層」。塗りポイントの
-//     集計(tickPaintPoints)と自陣インク判定(sampleInkAt)は必ずこちらを
-//     参照する。
-//   paintLayer: coverageLayerと同じコア形状 + 装飾(タンドリル/飛沫)を
-//     加えた「見た目の層」。CanvasTextureとして地面のマテリアルへ直接
-//     貼り付ける。
-// 2D版は「画面ピクセル=ワールド座標」だったが、3D化にあたって「ワールドの
-// XZ平面(地面)を真上から見た正方形のキャンバス」へマッピングする形に
-// 変更した。ワールド座標(メートル)⇔キャンバス座標(px)の変換は
-// worldToMapX()/worldToMapZ()で行う。
-// 地面はrotation.x=-Math.PI/2で回転しているため、ローカルY(=テクスチャV)は
-// ワールドZの符号反転にあたるが、CanvasTextureの既定flipY(=true、canvas行
-// 0→V=1に写す)がちょうどこれを相殺するため、mapZがワールドZに正比例する
-// 素直なマッピングのままでテクスチャの向きが一致する(詳細は各所コメント参照)。
+// インク塗りシステム
 // ==========================================================================
-const MAP_PIXELS_PER_METER = 12; // 塗りキャンバスの解像度(px/m)
+const MAP_PIXELS_PER_METER = 12;
 const MAP_SIZE_PX = Math.round(ARENA_SIZE * MAP_PIXELS_PER_METER);
 
 const paintLayer = document.createElement('canvas');
 paintLayer.width = MAP_SIZE_PX; paintLayer.height = MAP_SIZE_PX;
 const pctx = paintLayer.getContext('2d');
-// 床のベースカラーで塗りつぶしておく(未塗装部分がそのまま床の色に見えるように)。
 pctx.fillStyle = '#2a2d38';
 pctx.fillRect(0, 0, MAP_SIZE_PX, MAP_SIZE_PX);
 
@@ -725,29 +655,27 @@ const cctx = coverageLayer.getContext('2d');
 
 const paintTexture = new THREE.CanvasTexture(paintLayer);
 groundMat.map = paintTexture;
-groundMat.color.set(0xffffff); // マップの色をそのまま使うため、マテリアル側の色乗算は白(無変換)にしておく
+groundMat.color.set(0xffffff);
 groundMat.needsUpdate = true;
 
-const TEAM_COLOR_CSS = '#ff5a1f'; // TEAM_COLOR(3D側、下のplayerGroup等で使う0xff5a1f)のCSS表記
+const TEAM_COLOR_CSS = '#ff5a1f';
 const TEAM_COLOR_RGB = [255, 90, 31];
+const ENEMY_COLOR_CSS = '#b34aff'; // デス演出用の相手チーム色(2D版のENEMY_COLORを踏襲)
 
 function worldToMapX(wx){ return (wx + WALL_HALF) * MAP_PIXELS_PER_METER; }
 function worldToMapZ(wz){ return (wz + WALL_HALF) * MAP_PIXELS_PER_METER; }
 function metersToMapPx(m){ return m * MAP_PIXELS_PER_METER; }
-function mapLines(n){ return metersToMapPx(linesToMeters(n)); } // ライン単位 → 塗りキャンバスpx
+function mapLines(n){ return metersToMapPx(linesToMeters(n)); }
 
-// --------------------------------------------------------------------------
-// 有機的なインク跡の描画(2D版のblob生成ロジックをそのまま移植)。
-// --------------------------------------------------------------------------
 function blobPoints(cx, cy, baseRadius, numPoints, irregularity, stretchDir, stretchAmt){
   const points = [];
   for (let i = 0; i < numPoints; i++){
     const angle = (i / numPoints) * Math.PI * 2 + (Math.random() - 0.5) * (Math.PI / numPoints);
     let r = baseRadius * (0.75 + Math.random() * 0.35);
-    if (Math.random() < 0.22) r *= 1.35 + Math.random() * 0.5; // occasional spike toward tendril territory
+    if (Math.random() < 0.22) r *= 1.35 + Math.random() * 0.5;
     if (stretchDir !== undefined){
       const rel = Math.atan2(Math.sin(angle - stretchDir), Math.cos(angle - stretchDir));
-      const forwardFactor = (Math.cos(rel) + 1) / 2; // 0 = directly behind, 1 = directly ahead
+      const forwardFactor = (Math.cos(rel) + 1) / 2;
       r *= 1 + (stretchAmt - 1) * forwardFactor;
     }
     r *= (1 + (Math.random() - 0.5) * 2 * irregularity);
@@ -770,14 +698,14 @@ function drawSmoothBlobPath(pathCtx, points){
   pathCtx.closePath();
 }
 
-function drawCoreBlob(targetCtx, points){
-  targetCtx.fillStyle = TEAM_COLOR_CSS;
+function drawCoreBlob(targetCtx, points, colorCss){
+  targetCtx.fillStyle = colorCss || TEAM_COLOR_CSS;
   drawSmoothBlobPath(targetCtx, points);
   targetCtx.globalAlpha = 0.9 + Math.random() * 0.1;
   targetCtx.fill();
 }
 
-function paintTendril(cx, cy, angle, startDist, length, width){
+function paintTendril(cx, cy, angle, startDist, length, width, colorCss){
   const dx = Math.cos(angle), dy = Math.sin(angle);
   const px = -dy, py = dx;
   const sx = cx + dx * startDist, sy = cy + dy * startDist;
@@ -786,6 +714,7 @@ function paintTendril(cx, cy, angle, startDist, length, width){
   const mx = cx + dx * (startDist + length * 0.55) + px * bend;
   const my = cy + dy * (startDist + length * 0.55) + py * bend;
 
+  pctx.fillStyle = colorCss || TEAM_COLOR_CSS;
   pctx.globalAlpha = 0.85 + Math.random() * 0.15;
   pctx.beginPath();
   pctx.moveTo(sx + px * width, sy + py * width);
@@ -801,8 +730,9 @@ function paintTendril(cx, cy, angle, startDist, length, width){
   }
 }
 
-function paintSpatter(cx, cy, baseRadius, biasDir){
+function paintSpatter(cx, cy, baseRadius, biasDir, colorCss){
   const count = 4 + Math.floor(Math.random() * 5);
+  pctx.fillStyle = colorCss || TEAM_COLOR_CSS;
   for (let i = 0; i < count; i++){
     const angle = (biasDir !== undefined && Math.random() < 0.55)
       ? biasDir + (Math.random() - 0.5) * 1.3
@@ -816,36 +746,34 @@ function paintSpatter(cx, cy, baseRadius, biasDir){
   }
 }
 
-// Plain (non-directional) organic splat — 足元塗り・中間塗り用。
-function paintSplat(cx, cy, baseRadius){
+function paintSplat(cx, cy, baseRadius, colorCss){
   const numPoints = 8 + Math.floor(Math.random() * 4);
   const corePoints = blobPoints(cx, cy, baseRadius, numPoints, 0.3);
-  drawCoreBlob(cctx, corePoints);
-  drawCoreBlob(pctx, corePoints);
+  drawCoreBlob(cctx, corePoints, colorCss);
+  drawCoreBlob(pctx, corePoints, colorCss);
 
   if (Math.random() < 0.6){
     const angle = Math.random() * Math.PI * 2;
     const dist = baseRadius * (0.15 + Math.random() * 0.3);
     const subPoints = blobPoints(cx + Math.cos(angle) * dist, cy + Math.sin(angle) * dist,
                                   baseRadius * (0.4 + Math.random() * 0.3), 7, 0.35);
-    drawCoreBlob(cctx, subPoints);
-    drawCoreBlob(pctx, subPoints);
+    drawCoreBlob(cctx, subPoints, colorCss);
+    drawCoreBlob(pctx, subPoints, colorCss);
   }
 
-  paintSpatter(cx, cy, baseRadius);
+  paintSpatter(cx, cy, baseRadius, undefined, colorCss);
   pctx.globalAlpha = 1;
 }
 
-// 着弾塗り(伸び形状) — 弾の飛行方向へ伸びるブロブ + タンドリル + 飛沫。
-function paintSplatStretched(cx, cy, baseRadius, dirAngle, stretchRatio){
+function paintSplatStretched(cx, cy, baseRadius, dirAngle, stretchRatio, colorCss){
   const centerShift = baseRadius * (stretchRatio - 1) * 0.3;
   const bx = cx + Math.cos(dirAngle) * centerShift;
   const by = cy + Math.sin(dirAngle) * centerShift;
 
   const numPoints = 10 + Math.floor(Math.random() * 4);
   const corePoints = blobPoints(bx, by, baseRadius, numPoints, 0.28, dirAngle, stretchRatio);
-  drawCoreBlob(cctx, corePoints);
-  drawCoreBlob(pctx, corePoints);
+  drawCoreBlob(cctx, corePoints, colorCss);
+  drawCoreBlob(pctx, corePoints, colorCss);
 
   const secondaryCount = 1 + Math.floor(Math.random() * 2);
   for (let i = 0; i < secondaryCount; i++){
@@ -853,8 +781,8 @@ function paintSplatStretched(cx, cy, baseRadius, dirAngle, stretchRatio){
     const dist = baseRadius * (0.2 + Math.random() * 0.4);
     const sx = bx + Math.cos(angle) * dist, sy = by + Math.sin(angle) * dist;
     const subPoints = blobPoints(sx, sy, baseRadius * (0.35 + Math.random() * 0.3), 7, 0.35);
-    drawCoreBlob(cctx, subPoints);
-    drawCoreBlob(pctx, subPoints);
+    drawCoreBlob(cctx, subPoints, colorCss);
+    drawCoreBlob(pctx, subPoints, colorCss);
   }
 
   const tendrilCount = 3 + Math.floor(Math.random() * 4);
@@ -865,24 +793,20 @@ function paintSplatStretched(cx, cy, baseRadius, dirAngle, stretchRatio){
     const startDist = baseRadius * (0.55 + Math.random() * 0.3);
     const length = baseRadius * (0.35 + Math.random() * 0.55) * (0.6 + stretchRatio * 0.4);
     const width = baseRadius * (0.08 + Math.random() * 0.07);
-    paintTendril(bx, by, angle, startDist, length, width);
+    paintTendril(bx, by, angle, startDist, length, width, colorCss);
   }
 
-  paintSpatter(bx, by, baseRadius, dirAngle);
+  paintSpatter(bx, by, baseRadius, dirAngle, colorCss);
   pctx.globalAlpha = 1;
 }
 
-// ワールド座標(メートル)から呼び出す用のラッパー。このプロトタイプには
-// 壁オブジェクトが無いため、2D版のpaintSplatClippedにあったOBSTACLES判定は
-// 省略している。
-function paintSplatAtWorld(wx, wz, baseRadiusLines){
-  paintSplat(worldToMapX(wx), worldToMapZ(wz), mapLines(baseRadiusLines));
+function paintSplatAtWorld(wx, wz, baseRadiusLines, colorCss){
+  paintSplat(worldToMapX(wx), worldToMapZ(wz), mapLines(baseRadiusLines), colorCss);
 }
-function paintSplatStretchedAtWorld(wx, wz, baseRadiusLines, dirAngleXZ, stretchRatio){
-  paintSplatStretched(worldToMapX(wx), worldToMapZ(wz), mapLines(baseRadiusLines), dirAngleXZ, stretchRatio);
+function paintSplatStretchedAtWorld(wx, wz, baseRadiusLines, dirAngleXZ, stretchRatio, colorCss){
+  paintSplatStretched(worldToMapX(wx), worldToMapZ(wz), mapLines(baseRadiusLines), dirAngleXZ, stretchRatio, colorCss);
 }
 
-// 着弾塗り半径・前方伸び率: 飛距離(ライン)に応じた線形補間(2D版と同じ式)。
 function getSplatRadiusLines(weapon, traveledLines){
   const f = weapon.splatRadiusFalloff;
   if (!f) return 0.15;
@@ -900,21 +824,12 @@ function getStretchRatio(weapon, traveledLines){
   return f.startRatio + (f.endRatio - f.startRatio) * t;
 }
 
-// 足元塗り・中間塗りの発生判定(2D版と同じ「累積個数の差分」ロジック)。
 function shouldFootPaint(weapon, shotIndex){
   if (weapon.footPaintAvgInterval === undefined) return false;
   const avg = weapon.footPaintAvgInterval;
   return Math.floor(shotIndex / avg) > Math.floor((shotIndex - 1) / avg);
 }
-// 旧: 中間塗り(発射地点⇔着弾地点を直線補間して配置する版)は撤去した。
-// 軌跡塗りは、下のupdateProjectiles内で弾の実際の飛行位置(p.pos、重力で
-// 曲がった実測の経路)を起点にリアルタイムで発生させる方式に置き換えている。
 
-// --------------------------------------------------------------------------
-// 塗りポイントの集計(2D版と同じ「ダウンサンプル+前回マスクとの差分」方式)。
-// 換算係数(POINTS_PER_LINE_SQUARED)は2D版のユーザー実測に基づく暫定値を
-// そのまま使う: 1p ≒ 0.1265 ライン²。
-// --------------------------------------------------------------------------
 const POINTS_PER_LINE_SQUARED = 1 / 0.1265;
 const PAINT_SAMPLE_SIZE = 120;
 const sampleCanvas = document.createElement('canvas');
@@ -939,35 +854,48 @@ function tickPaintPoints(){
   return totalPaintPoints;
 }
 
-// 単発塗りポイントの上限を厳守する(2D版と同じ「実測値と公称値の小さい方」方式)。
+// スペシャルゲージへの加算(2D版のaddPaintPointsToSpGauge()を移植)。
+// 発動中(specialPhase!=='none')・spLockedFramesLeft>0 の間はブロックする。
+// スーパーセンサーのみ「ゲージロックが無い」仕様のため例外にする。
+function addPaintPointsToSpGauge(delta){
+  if (delta <= 0) return;
+  if (player.spLockedFramesLeft > 0) return;
+  if (!SPECIAL_TYPES_WITHOUT_GAUGE_LOCK.includes(currentSpecial().type) && player.specialPhase !== 'none') return;
+  player.spGauge = Math.min(player.spGaugeMax, player.spGauge + delta);
+}
+
 function creditCappedPaintPoints(nominalPoints){
   if (nominalPoints === undefined) return;
   const before = totalPaintPoints;
   tickPaintPoints();
-  const areaBasedDelta = totalPaintPoints - before; // 常に0以上
+  const areaBasedDelta = totalPaintPoints - before;
   const credited = Math.min(areaBasedDelta, nominalPoints);
   totalPaintPoints = before + credited;
+  addPaintPointsToSpGauge(credited);
 }
 
-// 自陣インク上か: coverageLayer(データ層)からプレイヤー足元の1pxを読み取る。
-// 旧バージョンでは「デカールへの近接判定」による近似だったが、実データを
-// 直接参照する形に置き換えた。
+// タグ無しの塗り(実面積そのままキャップ無し) — スーパーショット等、公称の
+// 単発上限値が資料に無いスペシャル用(2D版のtickPaintPointsAndFeedGauge()を移植)。
+function tickPaintPointsAndFeedGauge(){
+  const before = totalPaintPoints;
+  tickPaintPoints();
+  addPaintPointsToSpGauge(totalPaintPoints - before);
+}
+
 function sampleInkAt(wx, wz){
   const mxPx = Math.min(Math.max(Math.round(worldToMapX(wx)), 0), MAP_SIZE_PX - 1);
   const myPx = Math.min(Math.max(Math.round(worldToMapZ(wz)), 0), MAP_SIZE_PX - 1);
   const data = cctx.getImageData(mxPx, myPx, 1, 1).data;
-  if (data[3] < 40) return false; // 実質未塗装
+  if (data[3] < 40) return false;
   const dist = Math.abs(data[0] - TEAM_COLOR_RGB[0]) + Math.abs(data[1] - TEAM_COLOR_RGB[1]) + Math.abs(data[2] - TEAM_COLOR_RGB[2]);
-  return dist < 90; // チーム色に十分近ければ自陣インクとみなす(ブロブのアルファ合成による誤差を許容)
+  return dist < 90;
 }
 function isOnOwnInk(){
   return sampleInkAt(playerGroup.position.x, playerGroup.position.z);
 }
 
 // --------------------------------------------------------------------------
-// Player character — ヒト状態 (human) model: a capsule-ish body (cylinder +
-// sphere cap, since Three r128 has no CapsuleGeometry) plus a "beak" cone
-// so facing direction reads at a glance from behind.
+// Player character
 // --------------------------------------------------------------------------
 const TEAM_COLOR = 0xff5a1f;
 const playerGroup = new THREE.Group();
@@ -994,12 +922,6 @@ beakMesh.position.set(0, 0.85, 0.5);
 beakMesh.castShadow = true;
 playerGroup.add(beakMesh);
 
-// --------------------------------------------------------------------------
-// イカ状態 (squid form) model: a squashed body + two trailing tentacles +
-// two eye dots, facing the same +Z-local direction as the human model's
-// beak so it stays aligned when playerGroup.rotation.y is applied. Hidden
-// by default (form starts as 'human'); toggled in updatePlayerVisual().
-// --------------------------------------------------------------------------
 const squidGroup = new THREE.Group();
 const squidMat = new THREE.MeshStandardMaterial({ color: TEAM_COLOR, roughness: 0.45 });
 const squidBody = new THREE.Mesh(new THREE.SphereGeometry(0.4, 14, 12), squidMat);
@@ -1024,14 +946,41 @@ for (const side of [-1, 1]){
 squidGroup.visible = false;
 playerGroup.add(squidGroup);
 
-// --------------------------------------------------------------------------
-// インクタンクUI — displayed only while in squid form (both surfaced and
-// submerged), floating just beside the player, matching the reference
-// screenshots. A rotationally-symmetric cylinder + rim, so no billboard
-// rotation is needed — it reads the same from any horizontal angle.
-// The fill cylinder sits in its own group pivoted at the bottom, so
-// scaling fillGroup.scale.y grows/shrinks it upward from the base.
-// --------------------------------------------------------------------------
+// ==========================================================================
+// ダイオウイカ本体(巨大なイカ)— スペシャル「ダイオウイカ」発動中に表示。
+// 通常のイカ状態モデルを大きく拡大した専用メッシュとして別途用意する
+// (通常squidGroupを使い回すと通常のイカ状態と見分けがつかないため)。
+// ==========================================================================
+const daiouGroup = new THREE.Group();
+const daiouMat = new THREE.MeshStandardMaterial({ color: TEAM_COLOR, roughness: 0.4, emissive: 0x552200, emissiveIntensity: 0.25 });
+const daiouBody = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 14), daiouMat);
+daiouBody.scale.set(1, 0.75, 1.3);
+daiouBody.castShadow = true;
+daiouGroup.add(daiouBody);
+const daiouEyeGeo = new THREE.SphereGeometry(0.13, 8, 8);
+const daiouEyeL = new THREE.Mesh(daiouEyeGeo, eyeMat); daiouEyeL.position.set(-0.32, 0.15, 0.85); daiouGroup.add(daiouEyeL);
+const daiouEyeR = new THREE.Mesh(daiouEyeGeo, eyeMat); daiouEyeR.position.set(0.32, 0.15, 0.85); daiouGroup.add(daiouEyeR);
+const daiouTentacles = [];
+for (let i = 0; i < 8; i++){
+  const tentacle = new THREE.Mesh(new THREE.ConeGeometry(0.22, 1.1, 8), daiouMat);
+  const a = (i - 3.5) * 0.22;
+  tentacle.position.set(Math.sin(a) * 0.5, 0.05, -0.6 - Math.cos(a) * 0.2);
+  tentacle.rotation.x = Math.PI * 0.94;
+  tentacle.rotation.z = a * 0.6;
+  tentacle.castShadow = true;
+  daiouGroup.add(tentacle);
+  daiouTentacles.push(tentacle);
+}
+daiouGroup.visible = false;
+playerGroup.add(daiouGroup);
+const daiouAttackRing = new THREE.Mesh(
+  new THREE.RingGeometry(0.9, 1.0, 24),
+  new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7, side: THREE.DoubleSide })
+);
+daiouAttackRing.rotation.x = -Math.PI / 2;
+daiouAttackRing.visible = false;
+scene.add(daiouAttackRing);
+
 function createInkTank(){
   const group = new THREE.Group();
   const H = 0.5, R = 0.13;
@@ -1049,12 +998,12 @@ function createInkTank(){
   group.add(rim);
 
   const fillGroup = new THREE.Group();
-  fillGroup.position.y = -H / 2; // pivot at the tank's base
+  fillGroup.position.y = -H / 2;
   const fillCyl = new THREE.Mesh(
     new THREE.CylinderGeometry(R * 0.86, R * 0.86, H, 14),
     new THREE.MeshBasicMaterial({ color: 0x33e6c0 })
   );
-  fillCyl.position.y = H / 2; // grows upward from fillGroup's base pivot
+  fillCyl.position.y = H / 2;
   fillGroup.add(fillCyl);
   group.add(fillGroup);
 
@@ -1064,29 +1013,15 @@ const inkTank = createInkTank();
 inkTank.group.visible = false;
 scene.add(inkTank.group);
 
-const PLAYER_RADIUS = 0.45; // 移動時の壁クランプ用の簡易半径(下記の当たり判定カプセルとは別物)
-const MUZZLE_HEIGHT = 0.95; // where shots originate, roughly shoulder height
+const PLAYER_RADIUS = 0.45;
+const MUZZLE_HEIGHT = 0.95;
 
-// ==========================================================================
-// 当たり判定(ヒト状態カプセル／イカ状態球) — ユーザー提供の実測値。
-//   ヒト状態: 縦1.65m×横0.7m(直径)のカプセル型 → 半径0.35m、
-//             カプセル全体の高さ1.65m(上下の半球キャップを含む)。
-//   イカ状態: 直径1.6mの球体 → 半径0.8m。
-// 現時点でプレイヤー自身を狙う敵はいないため、この判定はまず「練習用
-// ダミー(人型)」の被弾判定に使う。将来、敵プレイヤーやCPUが実装された
-// 際にも同じ関数(capsuleHitTest/sphereHitTest)を再利用できるよう、
-// 汎用のユーティリティ関数として用意しておく。
-// ==========================================================================
 const HUMAN_HITBOX = { totalHeight: 1.65, radius: 0.35 };
-const SQUID_HITBOX = { radius: 0.8, centerHeight: 0.4 }; // 球の中心の地面からの高さ(イカ状態モデルの重心付近)
+const SQUID_HITBOX = { radius: 0.8, centerHeight: 0.4 };
 
-// 点pointが、baseY(地面基準の底面高さ)に立つ縦向きカプセル(中心軸は
-// (cx, cz)を通るY軸方向の線分)の内部にあるかどうかを判定する。
-// extraRadiusは弾自体の大きさなどをカプセル側に加算するための余白。
 function capsuleHitTest(point, cx, cz, baseY, hitbox, extraRadius){
   extraRadius = extraRadius || 0;
   const r = hitbox.radius;
-  // カプセルの中心線分(直径分の半球キャップを除いた円柱部分)の上下端。
   const segBottom = baseY + r;
   const segTop = baseY + hitbox.totalHeight - r;
   const clampedY = Math.max(segBottom, Math.min(segTop, point.y));
@@ -1097,11 +1032,6 @@ function capsuleHitTest(point, cx, cz, baseY, hitbox, extraRadius){
   return (dx * dx + dy * dy + dz * dz) <= rr * rr;
 }
 
-// pointの位置における、同じ縦向きカプセルの「表面の外向き法線」を返す。
-// カプセル中心軸上の最近点(capsuleHitTestのclampedYと同じ考え方)からpoint
-// への方向を正規化したもので、円柱部分では水平な放射方向、上下の半球
-// キャップ部分では斜め上/下を含む向きになる。着弾マーカーを、ダミーや
-// プレイヤーのような曲面へも「面一(壁と平行)」に貼り付けるために使う。
 function capsuleSurfaceNormal(point, cx, cz, baseY, hitbox){
   const r = hitbox.radius;
   const segBottom = baseY + r;
@@ -1114,45 +1044,39 @@ function capsuleSurfaceNormal(point, cx, cz, baseY, hitbox){
   return new THREE.Vector3(dx / len, dy / len, dz / len);
 }
 
-// 点pointが、baseY(地面基準)に立つイカ状態の球(中心はbaseY+centerHeight)の
-// 内部にあるかどうかを判定する。
-function sphereHitTest(point, cx, cz, baseY, hitbox, extraRadius){
-  extraRadius = extraRadius || 0;
-  const dx = point.x - cx;
-  const dy = point.y - (baseY + hitbox.centerHeight);
-  const dz = point.z - cz;
-  const rr = hitbox.radius + extraRadius;
-  return (dx * dx + dy * dy + dz * dz) <= rr * rr;
-}
-
-// --------------------------------------------------------------------------
-// "自陣インク上か" は、ファイル上部の「インク塗りシステム」ブロックで
-// 定義した isOnOwnInk()/sampleInkAt()(coverageLayerの実データを参照)を
-// そのまま使う。以前あった「デカールへの近接判定による近似」はここでは
-// 不要になったため削除した。
-// --------------------------------------------------------------------------
-
-// Switches between the human model, the surfaced squid model, and the
-// fully-submerged look (both models hidden, only the ink puddle + tank UI
-// showing) based on `form` and isOnOwnInk(). Also keeps the ink tank's
-// fill level and position in sync every frame.
-//
-// 潜伏(見た目が消える)状態は「自陣インク上」かつ「地面に接している」時
-// のみに限定する。grounded フラグは keydown(space)/updateJump 側で正しく
-// 更新される想定だが、念のため実際のプレイヤーY座標(playerGroup.position.y)
-// も AIRBORNE_EPS 以下であることを二重にチェックし、ジャンプ中に誤って
-// 潜伏扱い(見た目が消えたまま)になることを防ぐ。
-const AIRBORNE_EPS = 0.01; // これを超えて浮いていたら「空中」とみなす閾値(m)
+const AIRBORNE_EPS = 0.01;
 function updatePlayerVisual(){
   const isActuallyGrounded = grounded && playerGroup.position.y <= AIRBORNE_EPS;
-  const submerged = form === 'squid' && isActuallyGrounded && isOnOwnInk();
-  const showHuman = form === 'human';
+  const daiouActiveNow = currentSpecial().type === 'daioika' && player.specialPhase !== 'none';
+  const submerged = !daiouActiveNow && form === 'squid' && isActuallyGrounded && isOnOwnInk();
+  const showHuman = form === 'human' && !daiouActiveNow;
   trunkMesh.visible = showHuman;
   capMesh.visible = showHuman;
   beakMesh.visible = showHuman;
-  squidGroup.visible = form === 'squid' && !submerged;
+  squidGroup.visible = !daiouActiveNow && form === 'squid' && !submerged;
 
-  inkTank.group.visible = form === 'squid';
+  // ダイオウイカ本体の表示・スケール(変身前隙/変身解除後隙は0→1/1→0の
+  // アニメーションで補間する、2D版render()の考え方を移植)。
+  daiouGroup.visible = daiouActiveNow;
+  if (daiouActiveNow){
+    const sp = DAIOU_IKA_SPECIAL;
+    let scale;
+    if (player.specialPhase === 'activating'){
+      scale = Math.max(0.05, 1 - Math.max(0, player.specialPhaseFramesLeft) / sp.activateDelayFrames);
+    } else if (player.specialPhase === 'detransforming'){
+      scale = Math.max(0.05, Math.max(0, player.specialPhaseFramesLeft) / sp.detransformDelayFrames);
+    } else {
+      scale = 1;
+    }
+    daiouGroup.scale.set(scale, scale, scale);
+    daiouGroup.position.y = 0.55 * scale;
+    const t = performance.now();
+    for (let i = 0; i < daiouTentacles.length; i++){
+      daiouTentacles[i].rotation.x = Math.PI * 0.94 + Math.sin(t / 220 + i) * 0.08;
+    }
+  }
+
+  inkTank.group.visible = form === 'squid' && !daiouActiveNow;
   if (inkTank.group.visible){
     inkTank.group.position.set(
       playerGroup.position.x + 0.55,
@@ -1163,22 +1087,9 @@ function updatePlayerVisual(){
   }
 }
 
-// ==========================================================================
-// 足元塗り用の落下インクドロップ
-// --------------------------------------------------------------------------
-// 着弾塗り・軌跡塗り・足元塗りは、すべて実際に空間内を移動する「物」
-// (インクの弾、またはここで定義する落下中のインクの雫)が実際に床(y<=0)へ
-// 到達した位置を起点として発生させる。足元塗りは、プレイヤーが空中にいる
-// 間にトリガーされた場合、プレイヤーの「その時点の座標」からインクの雫が
-// 生まれ、プレイヤーの現在の速度(水平・垂直とも)を初速として重力
-// (GRAVITY_MPS2)の影響だけを受けながら落下し、実際に床へ着地した位置へ
-// 塗りが発生する(空気抵抗は考慮しない単純な放物運動)。プレイヤーが接地
-// している場合は、従来通りその場で即座に塗りが発生する。
-// ==========================================================================
 const fallingInkDrops = [];
 function spawnFallingInkDrop(x, y, z, vx, vy0, vz, radiusLines){
   if (y <= AIRBORNE_EPS){
-    // 既に地面にいるので即着地(従来通り、その場で即時発生)。
     paintSplatAtWorld(x, z, radiusLines);
     return;
   }
@@ -1206,9 +1117,6 @@ function updateFallingInkDrops(dt){
 // --------------------------------------------------------------------------
 // Practice dummy target
 // --------------------------------------------------------------------------
-// ダミーは人型(ヒト状態)を想定するため、見た目のサイズをHUMAN_HITBOXの
-// 実測カプセル寸法(直径0.7m×高さ1.65m)に合わせてある。これにより
-// 「見た目」と「実際の当たり判定(下記capsuleHitTest)」が一致する。
 const dummy = {
   hp: 100, maxHp: 100,
   radius: HUMAN_HITBOX.radius,
@@ -1218,13 +1126,10 @@ const dummyMat = new THREE.MeshStandardMaterial({ color: 0x4b5063, roughness: 0.
 const dummyMesh = new THREE.Mesh(new THREE.CylinderGeometry(dummy.radius, dummy.radius, HUMAN_HITBOX.totalHeight, 16), dummyMat);
 dummyMesh.position.copy(dummy.position).setY(HUMAN_HITBOX.totalHeight / 2);
 dummyMesh.castShadow = true;
-dummyMesh.userData.isEnemy = true; // 対象レティクルで◯+×(敵扱い)にするための目印
+dummyMesh.userData.isEnemy = true;
 scene.add(dummyMesh);
 let killCount = 0;
 
-// 対象レティクル(◯/◯+×)がレイキャストする相手のリスト。壁/什器はまだ
-// 実装されていないため(ファイル冒頭のスコープ注記を参照)、現状は床と
-// 練習用ダミーのみが対象。壁オブジェクトを追加した際はここに足す。
 const reticleRaycastTargets = [ground, dummyMesh];
 
 function respawnDummy(){
@@ -1235,40 +1140,69 @@ function updateDummyHpUI(){
   document.getElementById('dummy-hp-inner').style.width = (dummy.hp / dummy.maxHp * 100) + '%';
 }
 
+// ダミーへダメージを与える共通ヘルパー(スペシャル各種から呼ぶ)。killCount・
+// リスポーンを一括で処理する。
+function damageDummy(amount, popupPos){
+  if (dummy.hp <= 0 || amount <= 0) return;
+  dummy.hp = Math.max(0, dummy.hp - amount);
+  updateDummyHpUI();
+  spawnDamagePopup(popupPos || dummy.position.clone().add(new THREE.Vector3(0, HUMAN_HITBOX.totalHeight + 0.3, 0)), amount);
+  if (dummy.hp === 0){
+    killCount++;
+    document.getElementById('kill-count').textContent = `撃破数: ${killCount}`;
+    setTimeout(respawnDummy, 500);
+  }
+}
+
+// ==========================================================================
+// ダメージポップアップ(HTMLオーバーレイをワールド座標へ投影して表示)。
+// ==========================================================================
+const damagePopups = [];
+function spawnDamagePopup(worldPos, amount){
+  if (amount <= 0) return;
+  const el = document.createElement('div');
+  el.style.position = 'absolute';
+  el.style.pointerEvents = 'none';
+  el.style.color = '#ffffff';
+  el.style.fontWeight = 'bold';
+  el.style.fontSize = '13px';
+  el.style.textShadow = '0 1px 2px rgba(0,0,0,.8)';
+  el.style.transform = 'translate(-50%,-50%)';
+  el.textContent = amount.toFixed(1);
+  app.appendChild(el);
+  damagePopups.push({ el, worldPos: worldPos.clone(), bornAt: performance.now() });
+}
+function updateDamagePopups(){
+  const now = performance.now();
+  const LIFE = 700;
+  for (let i = damagePopups.length - 1; i >= 0; i--){
+    const p = damagePopups[i];
+    const age = now - p.bornAt;
+    if (age >= LIFE){ app.removeChild(p.el); damagePopups.splice(i, 1); continue; }
+    const t = age / LIFE;
+    const pos = p.worldPos.clone();
+    pos.y += t * 0.7;
+    const ndc = pos.project(camera);
+    if (ndc.z > 1){ p.el.style.display = 'none'; continue; }
+    p.el.style.display = 'block';
+    p.el.style.left = ((ndc.x * 0.5 + 0.5) * window.innerWidth) + 'px';
+    p.el.style.top = ((1 - (ndc.y * 0.5 + 0.5)) * window.innerHeight) + 'px';
+    p.el.style.opacity = String(1 - t);
+  }
+}
+
 // ==========================================================================
 // TPS camera + mouse look
-// --------------------------------------------------------------------------
-// yaw/pitch drive both the camera orbit and the player's facing direction
-// (movement and shots go where the camera looks, same as the 2D
-// prototype's mouse-look-driven aimAngle). Camera sits behind/above the
-// player at a fixed offset and looks at a point slightly above the
-// player's head.
 // ==========================================================================
-let yaw = Math.PI;   // facing -Z initially (toward the dummy)
-let pitch = -0.18;   // radians, positive = looking up, negative = looking down
+let yaw = Math.PI;
+let pitch = -0.18;
 const PITCH_MIN = -1.2, PITCH_MAX = 0.9;
-let sensitivity = 5; // 1〜10。2Dプロトタイプのカスタマイズ画面と同じ考え方で、5を基準値にする。
-const MOUSE_SENSITIVITY_BASE = 0.0022; // 感度5(中央値)のときの基準値
+let sensitivity = 5;
+const MOUSE_SENSITIVITY_BASE = 0.0022;
 function currentMouseSensitivity(){ return MOUSE_SENSITIVITY_BASE * (sensitivity / 5); }
-// カメラの高さ・距離: プレイヤーを画面中央ではなく画面下部寄りに収める
-// (参考画像のような、リティクルは画面中央付近・キャラは画面下1/3程度、
-// というTPSの典型的なフレーミング)ための調整値。カメラをプレイヤーより
-// 高い位置に置いたまま同じ照準方向(dir)を向かせると、地面に近いプレイヤー
-// 自身は視界の下側へ寄る——これはカメラの「向き」(=照準/弾の方向、
-// 画面中央のレティクルと一致させる必要がある)を変えずに実現できる、
-// カメラの「位置」だけの調整である点がポイント。
-// CAMERA_HEIGHTを上げる/CAMERA_DISTANCEを縮めるほど、キャラは画面のより
-// 下・より大きく映る。逆に下げる/伸ばすほど画面中央寄りに戻る。
 const CAMERA_DISTANCE = 6.4;
 const CAMERA_HEIGHT = 4.1;
 
-// --------------------------------------------------------------------------
-// Aim direction: single source of truth for camera look direction, shot
-// direction, and (flattened, pitch ignored) movement direction, so all
-// three always agree with each other and with the on-screen crosshair.
-// Standard yaw/pitch -> unit vector conversion; forward at yaw=0,pitch=0 is
-// +Z, matching the player mesh's un-rotated facing (see beakMesh above).
-// --------------------------------------------------------------------------
 function getAimDirection(){
   return new THREE.Vector3(
     Math.sin(yaw) * Math.cos(pitch),
@@ -1280,44 +1214,22 @@ function getFlatForward(){
   return new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
 }
 function getFlatRight(){
-  // Matches Three.js's actual camera-right basis (right = forward × up),
-  // so A/D strafe the way they visually appear on screen. (Previously
-  // this returned the mirrored vector, which is why A strafed right and
-  // D strafed left — now swapped to the correct sign.)
   return new THREE.Vector3(-Math.cos(yaw), 0, Math.sin(yaw));
 }
 
-// ==========================================================================
-// 視野角 (FOV) — vertical FOV per player state, taken directly as fovy since
-// THREE.PerspectiveCamera.fov IS the vertical field of view in degrees (fovx
-// is derived automatically from fovy+aspect, so no separate calculation is
-// needed here — fovx = 2*atan(aspect*tan(fovy/2)) happens inside Three.js's
-// projection matrix).
-//   ヒト状態: 55° / イカ状態: 60° / 投擲構え(最大ズーム時): 38°
-// Priority when multiple could apply: 投擲構え > イカ状態 > ヒト状態,
-// since you can't throw while squidded (same constraint as the 2D version).
-// ==========================================================================
 const FOV_HUMAN = 55;
 const FOV_SQUID = 60;
 const FOV_THROW_AIM = 38;
-const FOV_LERP_SPEED = 10; // higher = snappier zoom transition
+const FOV_LERP_SPEED = 10;
 
 function targetFov(){
   if (throwAimHeld) return FOV_THROW_AIM;
+  if (currentSpecial().type === 'daioika' && player.specialPhase !== 'none') return FOV_SQUID;
   if (form === 'squid') return FOV_SQUID;
   return FOV_HUMAN;
 }
 
-// --------------------------------------------------------------------------
-// Player form (human/squid) — stubbed for this milestone: holding the right
-// mouse button toggles the FOV-relevant state only (matches the 2D
-// prototype's right-click-to-squid convention). Full squid mechanics (swim
-// speed, submerging into own ink) are not ported yet.
-// --------------------------------------------------------------------------
 let form = 'human';
-// 投擲構え (throw-aim zoom) — stubbed the same way: holding E previews the
-// max-zoom FOV a sub-weapon/special throw would reach. No sub weapon is
-// implemented yet, so this is camera-only for now.
 let throwAimHeld = false;
 
 let pointerLocked = false;
@@ -1330,8 +1242,8 @@ document.addEventListener('pointerlockchange', () => {
 });
 document.addEventListener('mousemove', e => {
   if (!pointerLocked) return;
-  if (activeOverlay !== null) return; // オーバーレイ表示中は視点を動かさない
-  if (aimLocked) return; // 照準ロック(Shift)中は、体だけ動いても視点は固定する
+  if (activeOverlay !== null) return;
+  if (aimLocked) return;
   const s = currentMouseSensitivity();
   yaw -= e.movementX * s;
   pitch -= e.movementY * s;
@@ -1342,59 +1254,36 @@ function updateCamera(dt){
   playerGroup.rotation.y = yaw;
 
   const dir = getAimDirection();
-  // Camera sits BEHIND the player along the aim direction (subtract dir),
-  // offset up to shoulder height, then pulled in slightly when looking far
-  // up/down so it doesn't swing too wide.
   const distFactor = CAMERA_DISTANCE * (0.75 + 0.25 * Math.cos(pitch));
   const desiredPos = playerGroup.position.clone()
     .add(new THREE.Vector3(0, CAMERA_HEIGHT, 0))
     .addScaledVector(dir, -distFactor);
 
-  // Simple raycast-free ground clamp so the camera never dips below floor.
   desiredPos.y = Math.max(desiredPos.y, 0.6);
   camera.position.copy(desiredPos);
 
-  // Look along the same aim direction the crosshair/shots use, from a point
-  // just above the player's head — keeps camera, crosshair, and shot
-  // direction all in agreement.
   const lookTarget = playerGroup.position.clone()
     .add(new THREE.Vector3(0, 1.3, 0))
     .addScaledVector(dir, 10);
   camera.lookAt(lookTarget);
 
-  // Smoothly lerp toward the state-appropriate FOV rather than snapping,
-  // matching the "だんだんズームされる" (gradual zoom) description.
   const t = 1 - Math.exp(-FOV_LERP_SPEED * dt);
   camera.fov += (targetFov() - camera.fov) * t;
   camera.updateProjectionMatrix();
 }
 
 // ==========================================================================
-// Movement (WASD, relative to camera/player yaw — matches the 2D
-// prototype's "aim direction independent of strafe direction" feel, since
-// yaw here doubles as both facing and camera direction).
-// --------------------------------------------------------------------------
-// 2Dプロトタイプからの追加操作:
-//   ・Shift(長押し) — 照準ロック(カニ歩き)。押している間はmousemoveによる
-//     yaw/pitchの更新を止め、体だけ移動できるようにする(2D版のaimLockedを
-//     そのまま移植)。
-//   ・スペース — ジャンプ。2D版はトップダウンで未実装のままだったが、3D化
-//     したことで意味のある操作になるため、簡易的な放物運動(重力+初速)で
-//     実装した。接地判定はplayerGroup.position.y<=0で行う単純なもの。
-//   ・R — スペシャル発動キー。2D版のトルネード/スーパーショットに相当する
-//     機構はまだこの3D版に移植していないため、キー自体は受け付けるが
-//     「スペシャル未実装」の一時的なHUDメッセージを出すだけのスタブ。
+// Movement
 // ==========================================================================
 const keys = { w:false, a:false, s:false, d:false };
-let aimLocked = false; // Shift: 照準ロック(カニ歩き)
-const JUMP_SPEED_MPS = 5.2;         // ジャンプ初速(m/s)。人間サイズのキャラが軽快に跳ねる程度の値。
-const GRAVITY_MPS2 = 18;            // 重力加速度(m/s²)。ジャンプ・クイックボムの投擲弾道で共通利用する。
-let vy = 0;                          // プレイヤーの垂直速度(m/s)。0=地面に接地。
+let aimLocked = false;
+const JUMP_SPEED_MPS = 5.2;
+const GRAVITY_MPS2 = 18;
+let vy = 0;
 let grounded = true;
 
 window.addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
-  // ---- オーバーレイの開閉トグルキー(ゲームが動いているかどうかに関わらず反応) ----
   if (e.key === 'Escape'){
     if (activeOverlay === 'pause') closeOverlay();
     else openOverlay('pause');
@@ -1421,25 +1310,31 @@ window.addEventListener('keydown', e => {
     return;
   }
 
-  // オーバーレイが開いている間はここより下のゲームプレイ用キーを無視する。
   if (activeOverlay !== null) return;
 
   if (k in keys) keys[k] = true;
   if (e.key === 'Shift') aimLocked = true;
-  // 射撃後隙(postFireLockUntil)の間は投擲構え(サブウェポンの構えモーション
-  // に相当)へ移行できない(公式仕様)。
   if (k === 'e' && performance.now() >= postFireLockUntil) throwAimHeld = true;
   if (k === ' '){
-    e.preventDefault(); // ブラウザのページスクロールを防ぐ
-    // イカ状態でもジャンプできるようにする(スプラトゥーンのイカロールを
-    // 意識した挙動で、ヒト状態限定にする仕様上の理由は無いため)。
+    e.preventDefault();
     if (grounded){
       vy = JUMP_SPEED_MPS;
       grounded = false;
     }
   }
   if (k === 'r'){
-    showSpecialStubMessage();
+    if (!player.specialActive && player.specialPhase === 'none' && player.spGauge >= player.spGaugeMax){
+      activateSpecial();
+    } else {
+      showSpecialStubMessage(player.specialPhase !== 'none' ? 'すでにスペシャル発動中です' : 'スペシャルゲージが足りません');
+    }
+  }
+  // ダイオウイカ「回転攻撃」: 変身中にスペースキーで発動(2D版と同じ、前隙・
+  // 後隙なしで即座に攻撃判定が始まる)。
+  if (e.code === 'Space' && currentSpecial().type === 'daioika' &&
+      player.specialPhase === 'daiou' && !player.daiouSpinActive){
+    e.preventDefault();
+    startDaiouSpinAttack();
   }
 });
 window.addEventListener('keyup', e => {
@@ -1449,8 +1344,6 @@ window.addEventListener('keyup', e => {
   if (e.key === 'Shift') aimLocked = false;
   if (k === 'e'){
     if (throwAimHeld){
-      // 前隙(ヒト5F / 直前がイカ状態だった場合は10F)ぶん遅延させてから
-      // 実際に投擲する(main weaponのfiring windupと同じ考え方)。
       const startupFrames = wasSquidRecentlyForStartup ? QUICKBOMB.startupFramesSquid : QUICKBOMB.startupFramesHuman;
       pendingBombThrowAt = performance.now() + framesToSeconds(startupFrames) * 1000;
     }
@@ -1458,16 +1351,11 @@ window.addEventListener('keyup', e => {
   }
 });
 
-// スペシャル発動キー(R)のスタブ表示: まだ実装が無いことを専用のトースト
-// (#special-toast、fov-stateとは別要素)で一時的に知らせる。fov-state自体は
-// メインループで毎フレーム上書きされるため、そちらを流用すると即座に消され
-// てしまう(このバグは実装時に一度踏んだので、専用要素に分離してある)。
-// 2D版のトルネード/スーパーショットに相当するゲージ・発動システムは未移植
-// (ファイル冒頭のスコープ注記参照)。
 let specialStubTimeoutId = null;
-function showSpecialStubMessage(){
+function showSpecialStubMessage(text){
   const el = document.getElementById('special-toast');
   if (!el) return;
+  if (text) el.textContent = text;
   clearTimeout(specialStubTimeoutId);
   el.style.opacity = '1';
   specialStubTimeoutId = setTimeout(() => {
@@ -1478,25 +1366,16 @@ function showSpecialStubMessage(){
 let mouseDown = false;
 
 // ==========================================================================
-// レティクル(照準)
-// --------------------------------------------------------------------------
-// 中央の円は常に画面中央=現在の照準方向(getAimDirection()と一致)に固定。
-// 上下左右4本の線は、ブキの拡散角(WEAPON.spreadDeg)が実際に画面上で
-// どこまで広がりうるかを、現在のFOV(投擲構え/イカ状態でのズームも含む)を
-// 使って画面ピクセルへ投影した位置に毎フレーム配置し直す。
-// ズームでFOVが狭くなるほど、同じ拡散角でも見た目の広がりは大きくなる
-// (実際の弾のバラつきと視覚上のスケールが一致する)。
+// レティクル
 // ==========================================================================
 const reticleNE = document.getElementById('reticle-line-ne');
 const reticleNW = document.getElementById('reticle-line-nw');
 const reticleSE = document.getElementById('reticle-line-se');
 const reticleSW = document.getElementById('reticle-line-sw');
-const RETICLE_LINE_HALF = 7; // .reticle-line の長辺の半分(px)。中心からの隙間を作らないための詰め代
-const RETICLE_MIN_OFFSET = 9;   // 拡散角が非常に小さくても最低限これだけ中心から離す
-const RETICLE_MAX_OFFSET = 160; // 画面外まで広がらないようにクランプ
+const RETICLE_LINE_HALF = 7;
+const RETICLE_MIN_OFFSET = 9;
+const RETICLE_MAX_OFFSET = 160;
 
-// 現在の連射精度補正(度)。fireShot()で1発ごとに加算され、非射撃中は
-// 毎フレーム回復する(下のupdateFiringAccuracyState参照)。
 let currentCorrectionDeg = 0;
 
 function getCurrentEffectiveSpreadDeg(){
@@ -1509,18 +1388,12 @@ function updateReticle(){
   const cx = window.innerWidth / 2;
   const cy = window.innerHeight / 2;
 
-  // 拡散は角度の半値(±spreadDeg/2)が実際の最大ブレ幅なので、その半値を
-  // 現在のFOVの半値との比でスクリーン縦半分(px)に投影する。
-  // 連射精度補正(currentCorrectionDeg)・ジャンプ中拡散/ジャンプ撃ち補正も
-  // 加味した「現在実際に使われる拡散角」を反映する。
   const effectiveSpreadDeg = getCurrentEffectiveSpreadDeg();
   const halfSpreadRad = (effectiveSpreadDeg / 2) * Math.PI / 180;
   const halfFovRad = camera.fov * Math.PI / 360;
   const rawOffset = (Math.tan(halfSpreadRad) / Math.tan(halfFovRad)) * cy;
   const offset = Math.max(RETICLE_MIN_OFFSET, Math.min(RETICLE_MAX_OFFSET, rawOffset)) + RETICLE_LINE_HALF;
 
-  // 斜め四隅(NE/NW/SE/SW)に配置。各線は中心への放射方向ではなく、円周に
-  // 沿う接線方向(±45°)に傾け、四隅がブラケットのように見える向きにする。
   const diag = offset * Math.SQRT1_2;
   reticleNE.style.left = (cx + diag) + 'px';
   reticleNE.style.top = (cy - diag) + 'px';
@@ -1539,43 +1412,26 @@ function updateReticle(){
   reticleSW.style.transform = 'translate(-50%,-50%) rotate(-45deg)';
 }
 
-// ==========================================================================
-// 対象レティクル(◯ / ◯+×) — レティクル反応射程内で、照準方向のレイが
-// 実際に床・壁・対象にヒットする位置へ出す、追尾レティクルとは別物の表示。
-// ヒットしたのが「敵」扱いのオブジェクト(userData.isEnemy)なら◯の中に
-// ×を追加する。投擲構え中(throwAimHeld)は下のupdateThrowPreview()側の
-// 弾道表示に切り替わるため、こちらは非表示にする。
-// ==========================================================================
 const raycaster = new THREE.Raycaster();
 const targetReticleEl = document.getElementById('target-reticle');
 const targetRingEl = targetReticleEl.querySelector('.target-ring');
 const targetXEl = targetReticleEl.querySelector('.target-x');
 
 function updateTargetReticle(){
-  const showable = form === 'human' && !throwAimHeld && pointerLocked && activeOverlay === null;
+  const daiouActiveNow = currentSpecial().type === 'daioika' && player.specialPhase !== 'none';
+  const showable = form === 'human' && !daiouActiveNow && !throwAimHeld && pointerLocked && activeOverlay === null;
   if (!showable){
     targetReticleEl.style.display = 'none';
     return;
   }
 
   const dir = getAimDirection();
-  // 実際の弾は銃口(プレイヤー位置 + MUZZLE_HEIGHT)から発射される
-  // (fireShot()のorigin計算を参照)。以前はカメラ位置(プレイヤーの背後・
-  // 上方にオフセットされたTPSカメラ)からレイを飛ばしていたため、レイの
-  // 原点と実際の弾の発射元が一致しておらず、特に近距離で「オレンジの
-  // 対象レティクルが出る位置」と「実際に弾が当たる位置」がズレて見える
-  // 原因になっていた。レイの原点を弾の発射元と揃えることで、床・壁・
-  // 敵(userData.isEnemy)のどれに対しても同じ条件で、実際の着弾位置と
-  // 一致した位置に対象レティクルが出るようにする。
   const muzzleOrigin = playerGroup.position.clone().add(new THREE.Vector3(0, MUZZLE_HEIGHT, 0));
   raycaster.set(muzzleOrigin, dir);
   const hits = raycaster.intersectObjects(reticleRaycastTargets, false);
   const hit = hits.length ? hits[0] : null;
 
   const maxDist = linesToMeters(RETICLE_RESPONSE_RANGE_LINES);
-  // レイの原点を銃口(=弾の発射元)に揃えたので、ヒット距離(hit.distance)は
-  // そのまま弾の飛距離と一致する。以前の「プレイヤー位置からの距離で代用
-  // する」補正はもう不要(かつヒット点によっては誤差の原因になっていた)。
   const inRange = hit && hit.distance <= maxDist;
 
   if (!inRange){
@@ -1584,7 +1440,7 @@ function updateTargetReticle(){
   }
 
   const ndc = hit.point.clone().project(camera);
-  if (ndc.z > 1){ // カメラの後ろ側に投影された(理論上ここには来ないが念のため)
+  if (ndc.z > 1){
     targetReticleEl.style.display = 'none';
     return;
   }
@@ -1600,44 +1456,10 @@ function updateTargetReticle(){
 }
 
 // ==========================================================================
-// クイックボム等「投擲物」の弾道サブステップ物理(トンネリング対策)
-// --------------------------------------------------------------------------
-// クイックボムの投擲初速は67m/s超と非常に速く、1フレーム(1/60秒)だけでも
-// 1m以上移動する。一方でダミー(や自分自身)の当たり判定カプセルは半径
-// 0.35m程度しかないため、「移動後の到達点だけ」を毎フレームチェックする
-// 素朴な方式だと、実際の軌跡はカプセルの内部を通過しているにもかかわらず、
-// サンプリングした2点(移動前・移動後)がどちらもカプセルの外側にある、
-// という取りこぼし(トンネリング)が起こりうる。
-//
-// これが「ダミーの向こう側を狙って投げると、ダミーではなく照準の先の地点に
-// マーカーが出てしまう」不具合の直接の原因だった: プレビュー
-// (simulateBombLanding)・実投擲(updateBombs)のどちらも、ダミーを実際には
-// 貫通しているのに命中判定を取りこぼし、そのまま奥の着地点まで飛び続けて
-// いた。
-//
-// 対策として、1回の移動距離が BOMB_COLLISION_SUBSTEP_M(=5cm、どの当たり
-// 判定半径よりも十分小さい)を超えないよう、必要な分だけ移動を自動で細かく
-// 分割(サブステップ)しながら1歩ずつ判定する共通関数
-// stepThrowablePhysics() を用意し、プレビューと実投擲の両方がこれ「だけ」を
-// 呼ぶようにする。これにより、①トンネリングが解消される、②プレビューと
-// 実際の投擲の当たり判定ロジックが完全に一致する(プレビューでは当たって
-// いたのに実際は貫通する、といった食い違いが起こらなくなる)、の2つを
-// 同時に満たす。
-//
-// 床・壁(resolveWallHit)は「無限に広がる平面」の内外判定であり、1ステップ
-// でどれだけ大きく移動しても、移動後の位置がその平面を越えたかどうかは
-// 必ず検出できる(=トンネリングが原理的に起こらない)ため、サブステップは
-// カプセル(ダミー/自分自身)への当たり判定のためだけに必要となる。
+// 投擲物サブステップ物理(トンネリング対策、2D版から移植)
 // ==========================================================================
 const BOMB_COLLISION_SUBSTEP_M = 0.05;
 
-// pos(現在位置)・vel(現在速度)から、dt秒ぶんの弾道を安全なきざみで進める。
-// selfCheckMinTraveled が指定されている場合、投擲直後(まだ自分の体の
-// すぐ近くにある間)は自分自身への当たり判定を無視する(投げた瞬間に
-// 自爆しないようにするための猶予距離)。
-// 戻り値: 何かに命中した場合は { hit: {type, pos, normal, hitDummy} }
-//         (この場合、dtの途中で打ち切られ、以降の物理は計算されない)。
-//         命中しなかった場合は { pos, vel, traveled }(dt分進めた後の状態)。
 function stepThrowablePhysics(pos, vel, dt, traveledSoFar, maxRangeM, selfCheckMinTraveled){
   const speed = vel.length();
   const fullDistance = speed * dt;
@@ -1700,13 +1522,7 @@ function stepThrowablePhysics(pos, vel, dt, traveledSoFar, maxRangeM, selfCheckM
 }
 
 // ==========================================================================
-// 投擲プレビュー(弾道+着地点) — Eキー長押し(投擲構え)中、追尾レティクルを
-// 消して代わりに表示する。クイックボムの実測初速(QUICKBOMB_THROW_SPEED_MPS)
-// と、プレイヤーのジャンプ重力を流用したGRAVITY_MPS2(重力の公式データは
-// 未公開のため暫定値)を使い、実際の投擲(throwBomb関数、下部の「クイック
-// ボム(サブウェポン)本体」セクション参照)と全く同じ弾道式(stepThrowablePhysics)
-// でプレビューする。「慣性込み」射程(走りながらの投擲で伸びる分)を再現する
-// ため、プレビューの初速にも現在のプレイヤー実速度(player.vx/vz)を加算している。
+// 投擲プレビュー
 // ==========================================================================
 const THROW_ARC_SEGMENTS = 24;
 
@@ -1719,10 +1535,6 @@ scene.add(throwArcLine);
 
 const throwLandingMat = new THREE.MeshBasicMaterial({ color: 0xffe14d, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
 const throwLandingMesh = new THREE.Mesh(new THREE.RingGeometry(0.18, 0.28, 20), throwLandingMat);
-// 向き(rotation)は毎フレーム、当たった面の法線に合わせてupdateThrowPreview()
-// 側でクォータニオンとして設定し直す(床なら水平、壁なら壁面と平行=面一に
-// なるように)。RingGeometryは既定でXY平面上・法線+Zを向いているため、
-// その既定法線を基準に回転を組み立てる。
 const RING_LOCAL_NORMAL = new THREE.Vector3(0, 0, 1);
 throwLandingMesh.visible = false;
 scene.add(throwLandingMesh);
@@ -1730,11 +1542,7 @@ scene.add(throwLandingMesh);
 function simulateBombLanding(origin, vel){
   const maxRangeM = linesToMeters(QUICKBOMB.rangeInertiaLines);
   const simDt = 1 / FPS;
-  const maxSteps = FPS * 4; // 安全装置: 最大4秒ぶんシミュレートしたら打ち切る
-  // 自分自身(プレイヤー)への衝突判定は、投擲直後(まだ手元/体のすぐ近くに
-  // ある間)は判定から除外する。muzzleの位置は既にプレイヤーの中心から
-  // ある程度離れているが、念のため「ボム半径+プレイヤーカプセル半径」の
-  // 分だけ進んでから判定を有効にする。
+  const maxSteps = FPS * 4;
   const selfCheckMinTraveled = QUICKBOMB_RADIUS_M + HUMAN_HITBOX.radius;
   const points = [origin.clone()];
   let pos = origin.clone();
@@ -1758,8 +1566,6 @@ function simulateBombLanding(origin, vel){
     traveled = result.traveled;
     points.push(pos.clone());
   }
-  // maxStepsに達しても何にも当たらなかった場合(理論上ほぼ起きないが
-  // 念のため)、最後の位置を地面に落として終点にする。
   const landPos = pos.clone();
   landPos.y = 0;
   points.push(landPos);
@@ -1767,7 +1573,8 @@ function simulateBombLanding(origin, vel){
 }
 
 function updateThrowPreview(){
-  if (!throwAimHeld || activeOverlay !== null){
+  const daiouBlocksThrow = currentSpecial().type === 'daioika' && player.specialPhase !== 'none';
+  if (!throwAimHeld || activeOverlay !== null || daiouBlocksThrow){
     throwArcLine.visible = false;
     throwLandingMesh.visible = false;
     return;
@@ -1775,19 +1582,14 @@ function updateThrowPreview(){
 
   const origin = playerGroup.position.clone().add(new THREE.Vector3(0, MUZZLE_HEIGHT, 0));
   const dir = getAimDirection();
-  // 慣性: 現在のプレイヤー実速度(player.vx/vz)を初速に加算する。これが
-  // wikiの「射程 3.0ライン(慣性込み 5.0ライン)」— 走りながら投げるほど
-  // 遠くまで届く — の近似実装(実際の投擲throwBomb()と同じ式)。
   const vel = new THREE.Vector3(
     dir.x * QUICKBOMB_THROW_SPEED_MPS + player.vx,
     dir.y * QUICKBOMB_THROW_SPEED_MPS,
     dir.z * QUICKBOMB_THROW_SPEED_MPS + player.vz
   );
 
-  const { points, landPos, hitDummy, hitType, hitNormal } = simulateBombLanding(origin, vel);
+  const { points, landPos, hitDummy, hitNormal } = simulateBombLanding(origin, vel);
 
-  // シミュレートした経路点(可変個数)を、描画用の固定セグメント数
-  // (THROW_ARC_SEGMENTS+1)へインデックスベースで等間隔リサンプルする。
   const positions = throwArcGeo.attributes.position.array;
   const lastIdx = points.length - 1;
   for (let i = 0; i <= THROW_ARC_SEGMENTS; i++){
@@ -1804,16 +1606,10 @@ function updateThrowPreview(){
   throwArcGeo.computeBoundingSphere();
   throwArcLine.visible = true;
 
-  // ダミー(敵)への直撃ならオレンジ、それ以外(床/壁/自分自身)は黄色。
   throwLandingMat.color.set(hitDummy ? 0xff9a1f : 0xffe14d);
 
-  // マーカーの向き: 床(水平)・壁(垂直)だけでなく、ダミーや自分自身の
-  // ような曲面(カプセル)に当たった場合も、その接触点での実際の法線
-  // (hitNormal、capsuleSurfaceNormal参照)に合わせて向きを合わせる。
-  // これにより「壁」= 平面の壁に限らず、当たったあらゆる面と平行(面一)に
-  // マーカーが貼り付くようになる。
   const markerPos = landPos.clone();
-  markerPos.addScaledVector(hitNormal, 0.03); // 面からわずかに浮かせてZファイティングを防ぐ
+  markerPos.addScaledVector(hitNormal, 0.03);
   throwLandingMesh.quaternion.setFromUnitVectors(RING_LOCAL_NORMAL, hitNormal);
   throwLandingMesh.position.copy(markerPos);
   throwLandingMesh.visible = true;
@@ -1821,26 +1617,17 @@ function updateThrowPreview(){
 
 // ==========================================================================
 // クイックボム(サブウェポン)本体
-// --------------------------------------------------------------------------
-// Eキーで構え(投擲構え、上のupdateThrowPreview参照)、離すと前隙
-// (5F/10F)ぶん遅延させてから実際に投げる。「何かしらに当たると即座に
-// 爆発する」ため、弾のようにバウンド・転がりはさせず、床/ダミー/場外の
-// いずれかに触れた瞬間その位置で即爆発させる。当たり判定はプレビュー
-// (simulateBombLanding)と同じ stepThrowablePhysics() を使うため、
-// プレビューで表示された着地点と実際の爆発位置は常に一致する。
 // ==========================================================================
 const bombs = [];
-let lastBombThrowAt = -Infinity;   // 最後にクイックボムを投げた時刻(performance.now())。インク回復不能時間・連続使用フレームの起点。
-let bombPostThrowLockUntil = 0;    // 後隙(10F)が明けるまでの時刻
-let pendingBombThrowAt = null;     // 前隙待ちで予約された、実際に投げ「る」べき時刻(nullなら予約なし)
+let lastBombThrowAt = -Infinity;
+let bombPostThrowLockUntil = 0;
+let pendingBombThrowAt = null;
 
-// 参考画像の見た目(紫〜白の螺旋模様が入った雫型+上部の小さな取っ手)を、
-// three.jsのプリミティブで簡易再現したボム本体メッシュ。
 function createBombMesh(){
   const group = new THREE.Group();
-  const bodyMat = new THREE.MeshStandardMaterial({ color: 0xcbb2e8, roughness: 0.3, metalness: 0.08 });
-  const body = new THREE.Mesh(new THREE.SphereGeometry(0.15, 14, 12), bodyMat);
-  body.scale.set(1, 1.2, 1); // 雫型に近づけるための縦方向スケール
+  const bodyMat2 = new THREE.MeshStandardMaterial({ color: 0xcbb2e8, roughness: 0.3, metalness: 0.08 });
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.15, 14, 12), bodyMat2);
+  body.scale.set(1, 1.2, 1);
   body.castShadow = true;
   group.add(body);
   const stripeMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 });
@@ -1848,7 +1635,6 @@ function createBombMesh(){
     const ring = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.012, 6, 16), stripeMat);
     ring.rotation.x = Math.PI / 2 + (i - 1) * 0.35;
     ring.position.y = (i - 1) * 0.05;
-    ring.scale.set(1, 1, 1);
     group.add(ring);
   }
   const nubMat = new THREE.MeshStandardMaterial({ color: 0x2a2d38, roughness: 0.5 });
@@ -1858,26 +1644,28 @@ function createBombMesh(){
   return group;
 }
 
-// クイックボムを実際に投げる(前隙を待った後、下のkeyup('e')ハンドラから
-// 遅延呼び出しされる)。インク不足・連続使用フレーム未経過・後隙中の
-// いずれかに該当する場合は、投げずに黙って何も起きない(公式仕様通り
-// ボタンが弾かれるだけの挙動を模している)。
+// ボムラッシュ発動中はインク消費が0になる(2D版のisBombRushActive()を移植)。
+function isBombRushActive(){
+  return currentSpecial().type === 'bombrush' && player.specialPhase === 'bombrushActive';
+}
+
 function throwBomb(){
-  if (form !== 'human') return; // イカ状態からの直接投擲は未対応
+  if (form !== 'human') return;
+  const daiouBlocksThrow = currentSpecial().type === 'daioika' && player.specialPhase !== 'none';
+  if (daiouBlocksThrow) return;
   const now = performance.now();
   if (now - lastBombThrowAt < framesToSeconds(QUICKBOMB.minThrowIntervalFrames) * 1000) return;
   if (now < bombPostThrowLockUntil) return;
-  if (player.ink < QUICKBOMB.inkCostPercent) return;
+  const inkCost = isBombRushActive() ? 0 : QUICKBOMB.inkCostPercent;
+  if (player.ink < inkCost) return;
 
-  player.ink -= QUICKBOMB.inkCostPercent;
+  player.ink -= inkCost;
   lastBombThrowAt = now;
   bombPostThrowLockUntil = now + framesToSeconds(QUICKBOMB.postThrowLockFrames) * 1000;
 
   const dir = getAimDirection();
   const origin = playerGroup.position.clone().add(new THREE.Vector3(0, MUZZLE_HEIGHT, 0));
   const vel = dir.clone().multiplyScalar(QUICKBOMB_THROW_SPEED_MPS);
-  // 慣性: 投擲時のプレイヤー実速度を加算する(updateThrowPreview()の
-  // プレビューと同じ式。走りながらの投擲で射程3.0→5.0ラインへ伸びる)。
   vel.x += player.vx;
   vel.z += player.vz;
 
@@ -1891,9 +1679,6 @@ function throwBomb(){
   });
 }
 
-// --------------------------------------------------------------------------
-// 爆発エフェクト(拡大しながらフェードアウトする簡易フラッシュ)。
-// --------------------------------------------------------------------------
 const explosionFx = [];
 function spawnExplosionFx(pos){
   const geo = new THREE.SphereGeometry(0.22, 12, 10);
@@ -1920,11 +1705,6 @@ function updateExplosionFx(dt){
   }
 }
 
-// 爆発処理: 塗り(全方位の円形splat、着弾方向への伸びはなし) + ダメージ判定
-// (直撃/近距離爆風/遠距離爆風) + 視覚エフェクト。
-// directHit: 弾がダミーへ直接接触して爆発した場合はtrue(直撃扱い)。
-// paintFloor: falseを渡すと地面への塗りをスキップする(壁への着弾など、
-// 爆発地点の直下の床が実際の着弾面ではない場合に使う)。省略時はtrue。
 function explodeBomb(explosionPos, directHit, paintFloor){
   if (paintFloor !== false){
     paintSplatAtWorld(explosionPos.x, explosionPos.z, QUICKBOMB.paintRadiusLines);
@@ -1937,8 +1717,6 @@ function explodeBomb(explosionPos, directHit, paintFloor){
     const distLines = explosionPos.distanceTo(dummyCenter) / METERS_PER_LINE;
     let dmg = 0;
     if (directHit){
-      // 直撃: 直撃ダメージ(25.0) + 1F後に追加でヒットする近距離爆風(35.0)を
-      // 合算して即時に与える(wiki記載の2ヒット構成を簡略化した近似実装)。
       dmg = QUICKBOMB.damageDirect + QUICKBOMB.damageNear;
     } else if (distLines <= QUICKBOMB.damageNearRadiusLines){
       dmg = QUICKBOMB.damageNear;
@@ -1946,21 +1724,10 @@ function explodeBomb(explosionPos, directHit, paintFloor){
       const t = (distLines - QUICKBOMB.damageNearRadiusLines) / (QUICKBOMB.damageFarRadiusLines - QUICKBOMB.damageNearRadiusLines);
       dmg = QUICKBOMB.damageNear + (QUICKBOMB.damageFar - QUICKBOMB.damageNear) * t;
     }
-    if (dmg > 0){
-      dummy.hp = Math.max(0, dummy.hp - dmg);
-      updateDummyHpUI();
-      if (dummy.hp === 0){
-        killCount++;
-        document.getElementById('kill-count').textContent = `撃破数: ${killCount}`;
-        setTimeout(respawnDummy, 500);
-      }
-    }
+    damageDummy(dmg, explosionPos.clone().add(new THREE.Vector3(0, 0.4, 0)));
   }
 }
 
-// クイックボムの弾道更新: stepThrowablePhysics()に1フレーム(dt)分の物理を
-// 委譲する(プレビューと完全に同じロジック)。何かに命中したらその場で
-// 即座に爆発させる(バウンドしない)。
 function updateBombs(dt){
   for (const bomb of bombs){
     if (!bomb.alive) continue;
@@ -1973,13 +1740,10 @@ function updateBombs(dt){
       if (h.type === 'dummy'){
         explodeBomb(h.pos, true);
       } else if (h.type === 'wall'){
-        // 壁への着弾: このプロトタイプの塗りは地面を真上から見た二次元マップ
-        // のみのため、垂直な壁面には塗りを反映できない(paintFloor: false)。
         explodeBomb(h.pos, false, false);
       } else if (h.type === 'floor'){
         explodeBomb(h.pos, false);
       }
-      // 'self'・'lost'(想定外に高く飛び続けた場合の安全装置)は爆発させずに消す。
       scene.remove(bomb.mesh);
       bomb.alive = false;
     } else {
@@ -1987,7 +1751,6 @@ function updateBombs(dt){
       bomb.vel.copy(result.vel);
       bomb.traveled = result.traveled;
       bomb.mesh.position.copy(bomb.pos);
-      // 回転させて「投げられた物」らしい見た目にする。
       bomb.mesh.rotation.x += dt * 7;
       bomb.mesh.rotation.z += dt * 5;
     }
@@ -1998,58 +1761,32 @@ function updateBombs(dt){
 }
 
 renderer.domElement.addEventListener('mousedown', e => {
-  if (activeOverlay !== null) return; // オーバーレイ表示中はゲーム内クリックを無視する
+  if (activeOverlay !== null) return;
   if (!pointerLocked){ renderer.domElement.requestPointerLock(); return; }
   if (e.button === 0){
-    // 射撃後隙は「発射後にイカ状態へ変形/サブウェポンを使えるようになるまで
-    // の時間」であり、連射自体を妨げるものではないため、ここでは新しい
-    // バーストの開始をブロックしない(ブロック対象はupdateSquidFormLock()の
-    // イカ変形リクエストと、下記keydown('e')の投擲構えのみ)。
     if (!mouseDown){
-      // トリガーを新しく引いた瞬間: 射撃前隙(ヒト/イカ)を計算し直す。
-      // イカ状態から直接発射することはできない仕様(updateWeapon側の
-      // form==='human'チェック)だが、「直前までイカ状態だった」場合は
-      // イカ→ヒト遷移の前隙(10F)を適用する(wasSquidRecentlyForStartupで判定)。
       firingWindupStartAt = performance.now();
       firingWindupFrames = wasSquidRecentlyForStartup ? WEAPON.startupFramesSquid : WEAPON.startupFramesHuman;
       firstShotOfBurstFired = false;
     }
     mouseDown = true;
   }
-  // イカ状態: 右クリック長押しの間、姿とFOV(60°)を切り替える。自陣インクの
-  // 上ならインクの中に潜った見た目になる(isOnOwnInk()参照、coverageLayerの
-  // 実データを参照)。泳ぐ速度変化・急速回復は下記updateMovement/updateInkで
-  // 実際に反映される。射撃後隙(postFireLockUntil)の間は実際の変形を保留する
-  // ため、ここではリクエストのフラグだけを立て、実反映はupdateSquidFormLock()
-  // に任せる。
   if (e.button === 2) squidFormRequested = true;
 });
 window.addEventListener('mouseup', e => {
   if (e.button === 0){
     if (mouseDown){
-      // トリガーを離した瞬間: 射撃後隙(postFireLockFrames)を発生させる。
-      // これが有効な間は、イカ状態への変形(右クリック)・投擲構え(E)を
-      // updateSquidFormLock()/updateThrowAimLock()側でブロックする。
       postFireLockUntil = performance.now() + framesToSeconds(WEAPON.postFireLockFrames) * 1000;
     }
     mouseDown = false;
-    burstShotCount = 0; // トリガーを離したら足元塗り・中間塗りのパターンをリセット
+    burstShotCount = 0;
   }
   if (e.button === 2) squidFormRequested = false;
 });
 renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
 
 // ==========================================================================
-// オーバーレイ(ポーズ／メニュー／カスタマイズ／スタブ) — 2Dプロトタイプ
-// (ink-paint-prototype.html)から移植した状態管理。activeOverlayが
-// null以外の間、メインループ側でupdateMovement/updateWeapon/updateInk/
-// updateCamera/updateThrowPreviewの呼び出しをスキップして「時を止める」。
-// renderer.render自体は毎フレーム呼び続けるので、暗幕の下に直前のフレームが
-// 見え続ける(2D版と同じ演出)。
-// オーバーレイを開く際はポインタロックを解除する(ロック中はOSカーソルが
-// 見えずボタン操作ができないため)。閉じたら「クリックしてマウスルックを
-// 有効化」の案内を出し直し、次のクリックで再ロックできるようにする
-// (ブラウザ側の連続リクエスト制限を避けるため、自動再ロックはしない)。
+// オーバーレイ
 // ==========================================================================
 let activeOverlay = null;
 const overlayEls = {
@@ -2081,7 +1818,7 @@ function openOverlay(name){
   keys.w = keys.a = keys.s = keys.d = false;
   throwAimHeld = false;
   pendingBombThrowAt = null;
-  aimLocked = false; // 押しっぱなしのShiftがオーバーレイを開いた後も残らないようにする
+  aimLocked = false;
   if (document.pointerLockElement === renderer.domElement) document.exitPointerLock();
   updatePointerLockPromptVisibility();
   if (name === 'menu') showMenuTab('range');
@@ -2102,19 +1839,18 @@ document.getElementById('stub-close-btn').addEventListener('click', closeOverlay
 document.getElementById('menu-close-btn').addEventListener('click', closeOverlay);
 document.getElementById('customize-close-btn').addEventListener('click', closeOverlay);
 
-// メニューオーバーレイのタブ切り替え(射撃場／オプション／ヘルプ)。
 const HELP_KEY_ROWS = [
   ['W A S D', '移動'],
   ['マウス移動', '視点操作(マウスルック)'],
   ['左クリック(長押し)', '発射'],
   ['右クリック(長押し)', 'イカ状態(自陣インク上なら潜行・急速回復)'],
   ['E(長押し→離す)', 'クイックボムを投擲(構え中はFOVズーム+弾道プレビューを表示)'],
-  ['R', 'スペシャル発動(未実装。押すとその旨を表示)'],
+  ['R', 'スペシャル発動(ゲージ満タン時)'],
+  ['スペース', 'ジャンプ／ダイオウイカ変身中は回転攻撃'],
   ['Shift(長押し)', '照準ロック(カニ歩き。視点を固定したまま移動できる)'],
-  ['スペース', 'ジャンプ'],
   ['ESC', 'ポーズ(ゲームに戻る・塗りリセット)'],
   ['Q', 'ロビーメニュー(未実装)'],
-  ['B', 'カスタマイズ(感度変更)'],
+  ['B', 'カスタマイズ(スペシャル選択・感度変更)'],
   ['M', 'マップ(未実装)'],
   ['F', 'メニュー(射撃場・オプション・ヘルプ)'],
 ];
@@ -2142,15 +1878,15 @@ function showMenuTab(tab){
     const rows = HELP_KEY_ROWS.map(([k, v]) => `<li><b>${k}</b><span>${v}</span></li>`).join('');
     contentEl.innerHTML = `
       <ul class="help-key-list">${rows}</ul>
-      <div class="help-note">※ このプロトタイプでは、スペシャル・ロビーメニュー・マップは未実装です(サブウェポンはクイックボムのみ実装済み)。</div>`;
+      <div class="help-note">※ このプロトタイプでは、ロビーメニュー・マップは未実装です(サブウェポンはクイックボムのみ実装済み)。</div>`;
   }
 }
 document.querySelectorAll('#menu-overlay [data-menu-tab]').forEach(btn => {
   btn.addEventListener('click', () => showMenuTab(btn.dataset.menuTab));
 });
 
-// カスタマイズオーバーレイ: ブキは現状スプラシューター1丁のみなので選択
-// UIではなく「選択中」表示に留め、感度スライダーだけを同期する。
+// カスタマイズオーバーレイ: ブキは1丁のみ・スペシャルは6種から選べる
+// (2D版のrefreshCustomizeOverlay()と同じ考え方)。発動中は切替不可にする。
 function refreshCustomizeOverlay(){
   const listEl = document.getElementById('customize-weapon-list');
   listEl.innerHTML = '';
@@ -2159,6 +1895,23 @@ function refreshCustomizeOverlay(){
   btn.textContent = '● ' + WEAPON.name;
   btn.disabled = true;
   listEl.appendChild(btn);
+
+  const specialListEl = document.getElementById('customize-special-list');
+  specialListEl.innerHTML = '';
+  const specialInProgress = player.specialPhase !== 'none';
+  SPECIALS.forEach((s, i) => {
+    const sbtn = document.createElement('button');
+    sbtn.className = 'weapon-pick-btn' + (i === player.specialIndex ? ' active' : '');
+    sbtn.textContent = (i === player.specialIndex ? '● ' : '○ ') + `${specialDisplayName(s)}(必要塗pt${s.requiredPoints})`;
+    sbtn.disabled = specialInProgress;
+    if (specialInProgress) sbtn.style.opacity = '0.5';
+    sbtn.addEventListener('click', () => {
+      switchSpecial(i);
+      refreshCustomizeOverlay();
+    });
+    specialListEl.appendChild(sbtn);
+  });
+
   syncSensitivityInput(document.getElementById('sensitivity-slider'), document.getElementById('sensitivity-value'));
 }
 
@@ -2178,8 +1931,6 @@ document.getElementById('sensitivity-slider').addEventListener('input', e => {
   setSensitivity(Number(e.target.value));
 });
 
-// 塗りリセット: 塗りキャンバス(coverageLayer/paintLayer)を初期状態へ戻し、
-// 塗りポイント集計・インク残量もリセットする(2D版のresetPaint()を移植)。
 function resetPaint(){
   pctx.fillStyle = '#2a2d38';
   pctx.fillRect(0, 0, MAP_SIZE_PX, MAP_SIZE_PX);
@@ -2192,24 +1943,6 @@ function resetPaint(){
 
 // ==========================================================================
 // 加速度システム
-// --------------------------------------------------------------------------
-// 基準加速度は 0.01m/F²(0.1DU/F²)。スティックを全力で倒した際、この値で
-// 1フレームごとに目標速度へ近づいていく。目標速度がゼロ(キーを離した)や
-// 逆方向(反対キーを倒した)の場合の減速も、同じ加速度の値で速度が
-// マイナス方向に変化していくだけ(=同じ式で加減速両方をカバーできる)。
-//
-// 状態による例外:
-//   ・ボールドマーカーのみ、イカ速のときの加速度が 0.015m/F²(1.5倍)。
-//     ヒト速の加速度は他ブキと同じ基準値のまま変化しない。
-//   ・メイン射撃中、またはサブ・スペシャルの攻撃中/構えモーション中は、
-//     加速度が 0.02m/F²(基準の2倍)になる。これらの動作中にイカ状態へ
-//     切り替わった場合もこの値が優先して適用される(ボールドマーカーの
-//     1.5倍とは重複しない=0.15×2の3倍にはならず、常に0.02のまま)。
-//
-// t = 最高速度 ÷ 加速度 で最高速到達までのフレーム数が求まる
-// (例: ボールドマーカーのイカ速 2.016DU/F ÷ 0.15DU/F² = 13.44F ≈ 14F —
-//  この関係は m/s ÷ m/s² = 秒 でも同様に成立するため、下記は秒基準の
-//  dt積分で実装しても仕様と一致する)。
 // ==========================================================================
 function getCurrentAccelMPerS2(actionState){
   if (actionState) return duPerF2ToMPerS2(ACCEL_ACTION_DU_PER_F2);
@@ -2217,21 +1950,28 @@ function getCurrentAccelMPerS2(actionState){
   return duPerF2ToMPerS2(ACCEL_BASE_DU_PER_F2);
 }
 
-// 現在の状態(ヒト/イカ、射撃中、自陣インク上か)から目標最高速度(m/s)を返す。
-// ヒト速は仕様通り、インクの有無や床の種類による変化を持たない。
 function getTargetSpeedMPerS(firing){
+  const daiouActiveNow = currentSpecial().type === 'daioika' && player.specialPhase === 'daiou';
+  if (daiouActiveNow) return duPerFrameToMPerSec(DAIOU_IKA_SPECIAL.moveSpeedDU);
+
+  const sp = currentSpecial();
+  const inSuperShotMode = sp.type === 'supershot' &&
+    (player.specialPhase === 'activating' || player.specialPhase === 'supershotActive' || player.specialPhase === 'supershotEnding');
+  if (inSuperShotMode){
+    if (form === 'squid') return duPerFrameToMPerSec(sp.squidSpeedDU);
+    const firingNow = player.specialPhase === 'supershotActive' && mouseDown && player.supershotPreShotFramesLeft <= 0;
+    return duPerFrameToMPerSec(firingNow ? sp.shootMoveSpeedDU : sp.walkSpeedDU);
+  }
+  if (player.specialPhase === 'holding' || player.specialPhase === 'throwing'){
+    return duPerFrameToMPerSec(TORNADO_SPECIAL.holdMoveSpeedDU);
+  }
+
   if (form === 'squid'){
-    // 「敵インク上ではイカダッシュ不可(泳げない)」は、このプロトタイプに
-    // チーム/敵インクの概念がまだ無いため未実装。自陣インク判定は
-    // coverageLayerの実データを見るisOnOwnInk()で行う。
     return isOnOwnInk() ? player.squidSpeedOnInk : player.squidSpeedOffInk;
   }
   return firing ? player.shootSpeed : player.humanSpeed;
 }
 
-// ジャンプ中の垂直方向の運動を、水平移動とは独立に積分する(単純な放物運動:
-// 初速JUMP_SPEED_MPS・重力GRAVITY_MPS2。空中制御の可否などは特に制限せず、
-// 水平方向のupdateMovement()内のロジックはジャンプ中もそのまま動く)。
 function updateJump(dt){
   if (grounded) return;
   vy -= GRAVITY_MPS2 * dt;
@@ -2245,6 +1985,13 @@ function updateJump(dt){
 }
 
 function updateMovement(dt, firing, actionState){
+  // ダイオウイカ変身中(発動隙/変身解除後隙)はその場で待機させる(2D版と同じ)。
+  const daiouGate = currentSpecial().type === 'daioika' && player.specialPhase !== 'none' && player.specialPhase !== 'daiou';
+  if (daiouGate){
+    player.vx = 0; player.vz = 0;
+    return;
+  }
+
   let moveX = 0, moveZ = 0;
   if (keys.w) moveZ -= 1;
   if (keys.s) moveZ += 1;
@@ -2257,9 +2004,6 @@ function updateMovement(dt, firing, actionState){
     const len = Math.hypot(moveX, moveZ);
     moveX /= len; moveZ /= len;
 
-    // Movement stays flat (pitch ignored) and uses the same yaw-derived
-    // forward/right basis as getAimDirection()/getFlatForward(), so 'W'
-    // always walks toward where the camera/crosshair is pointing.
     const forward = getFlatForward(), right = getFlatRight();
     const worldX = -moveZ * forward.x + moveX * right.x;
     const worldZ = -moveZ * forward.z + moveX * right.z;
@@ -2268,7 +2012,6 @@ function updateMovement(dt, firing, actionState){
     targetVX = worldX * targetSpeed;
     targetVZ = worldZ * targetSpeed;
   }
-  // 入力が無ければ目標速度はゼロ = 現在の加速度でブレーキがかかっていく
 
   const accel = getCurrentAccelMPerS2(actionState);
   const dvx = targetVX - player.vx;
@@ -2280,9 +2023,6 @@ function updateMovement(dt, firing, actionState){
     player.vx = targetVX;
     player.vz = targetVZ;
   } else {
-    // 目標速度への差分ベクトルの向きへ、加速度分だけ速度を変化させる。
-    // 逆方向入力時もこの式のまま(差分ベクトルが大きくなるだけ)で、
-    // 同じ加速度でゼロを通過して減速→加速する挙動になる。
     player.vx += (dvx / dvLen) * maxStep;
     player.vz += (dvz / dvLen) * maxStep;
   }
@@ -2292,41 +2032,51 @@ function updateMovement(dt, firing, actionState){
   const clamped = clampToArena(nx, nz, PLAYER_RADIUS);
   playerGroup.position.x = clamped.x;
   playerGroup.position.z = clamped.z;
-  // 壁でクランプされた軸は速度も止める(張り付いたまま速度だけ溜まるのを防止)。
   if (clamped.x !== nx) player.vx = 0;
   if (clamped.z !== nz) player.vz = 0;
+
+  // ダイオウイカ「移動塗り」: 変身中(daiou)で実際に移動していれば、進行方向に
+  // 直交する幅の帯としてプレイヤー位置に塗りを置き続ける(2D版paintDaiouTrail())。
+  if (currentSpecial().type === 'daioika' && player.specialPhase === 'daiou' && hasInput){
+    const radiusLines = DAIOU_IKA_SPECIAL.moveTrailHalfWidthMeters / METERS_PER_LINE;
+    paintSplatAtWorld(playerGroup.position.x, playerGroup.position.z, radiusLines);
+    tickPaintPointsAndFeedGauge();
+  }
 
   updateJump(dt);
 }
 
 // ==========================================================================
-// Weapon: single-shot spawn, straight-line travel, dummy/range/bounds hit
-// check. 着弾/失速/場外時には(旧バージョンの平坦なデカールに代わって)
-// 実際にインク塗りシステム(paintImpactSplat)を呼び、着弾塗り(伸び形状)・
-// 中間塗り・塗りポイント加算を行う。
-// A crude exponential fallback is kept for any future weapon added without
-// verified decel/freefall constants.
+// Weapon
 // ==========================================================================
 const projectiles = [];
 const projGeo = new THREE.SphereGeometry(0.05, 8, 8);
 const projMat = new THREE.MeshBasicMaterial({ color: 0xffd8c2 });
 
 let lastShotAt = 0;
-let burstShotCount = 0; // マウス押しっぱなしの間の発射数(足元塗り・中間塗りのパターン管理用)
+let burstShotCount = 0;
 
-// ---- 射撃前隙・射撃後隙・イカ→ヒト前隙判定・連射精度補正まわりの状態 ----
-let firingWindupStartAt = 0;   // 現在のトリガー押下(バースト)が始まった時刻(performance.now())
-let firingWindupFrames = 0;    // このバーストに適用される前隙フレーム数(2F or 10F)
-let firstShotOfBurstFired = false; // このバーストの最初の1発をまだ前隙待ちの上で撃っていないか
-let postFireLockUntil = 0;     // この時刻(performance.now())まで、イカ変形/投擲構えを禁止(射撃後隙)
-let wasSquidRecentlyForStartup = false; // 直前フレームでイカ状態だったか(トリガーを引いた瞬間の前隙判定用)
+let firingWindupStartAt = 0;
+let firingWindupFrames = 0;
+let firstShotOfBurstFired = false;
+let postFireLockUntil = 0;
+let wasSquidRecentlyForStartup = false;
+
+// メイン射撃を止めるべきかどうかの共通判定(2D版のmainWeaponBlocked()を移植)。
+// スーパーショット発動中・ダイオウイカ変身中は、通常のスプラシューターは
+// 一時的に使用不可になる(specialActiveがfalseの間=構え可能な期間も含む)。
+function mainWeaponBlocked(){
+  if (player.specialActive) return true;
+  if (currentSpecial().type === 'supershot' && player.specialPhase !== 'none') return true;
+  if (currentSpecial().type === 'daioika' && player.specialPhase !== 'none') return true;
+  return false;
+}
 
 function fireShot(){
   if (player.ink < WEAPON.inkPerShot) return;
   player.ink -= WEAPON.inkPerShot;
   lastShotAt = performance.now();
 
-  // 連射精度補正: 1発ごとに悪化量を加算(初弾は0.0486°から開始、最大1.215°で頭打ち)。
   currentCorrectionDeg = Math.min(
     WEAPON.maxCorrectionDeg,
     currentCorrectionDeg > 0
@@ -2337,8 +2087,6 @@ function fireShot(){
   const effectiveSpreadDeg = getCurrentEffectiveSpreadDeg();
   const spread = (Math.random() - 0.5) * effectiveSpreadDeg * Math.PI / 180;
   const angle = yaw + spread;
-  // Same aim-direction convention as the camera (getAimDirection()), so
-  // shots always travel exactly where the crosshair/camera is pointing.
   const dir = new THREE.Vector3(
     Math.sin(angle) * Math.cos(pitch),
     Math.sin(pitch),
@@ -2350,17 +2098,11 @@ function fireShot(){
   mesh.position.copy(origin);
   scene.add(mesh);
 
-  // (A)初速の方向・大きさで初期速度ベクトルを作る。直進状態は重力・空気抵抗の
-  // 影響を受けないため、この速度ベクトルは①直進状態の間ずっと一定のまま。
   const b = WEAPON.ballistics;
   const initialSpeed = duPerFrameToMPerSec(b.A_initialSpeedDU);
   const vel = dir.clone().multiplyScalar(initialSpeed);
 
   burstShotCount++;
-  // 足元塗り: 発数ベースの固定パターンで発生(2D版shouldFootPaint()と同じロジック)。
-  // プレイヤーが空中にいる場合は、その時点の座標・速度から落下するインクの
-  // 雫として発生させ、実際に床へ着地した位置に塗りが生まれるようにする
-  // (spawnFallingInkDrop参照)。接地中は従来通りその場で即時発生する。
   if (shouldFootPaint(WEAPON, burstShotCount)){
     spawnFallingInkDrop(
       playerGroup.position.x, playerGroup.position.y, playerGroup.position.z,
@@ -2372,29 +2114,23 @@ function fireShot(){
   projectiles.push({
     mesh,
     pos: origin.clone(),
-    vel,                 // 現在の速度ベクトル(m/s)。フェーズに応じて毎F変化する。
-    phase: 'straight',   // 'straight' → 'brake' → 'freefall'
+    vel,
+    phase: 'straight',
     traveled: 0,
-    trailPaintedAt: 0,   // 軌跡塗りを最後に発生させた時点のtraveled距離(m)
+    trailPaintedAt: 0,
     frameCount: 0,
     alive: true,
-    startX: origin.x, startZ: origin.z,     // (デバッグ/将来利用のため保持)発射地点
-    dirAngleXZ: Math.atan2(dir.z, dir.x),   // 着弾塗りの伸び方向(XZ平面上の角度)
+    startX: origin.x, startZ: origin.z,
+    dirAngleXZ: Math.atan2(dir.z, dir.x),
     burstShotIndex: burstShotCount,
   });
 }
 
-// 着弾時の塗り処理: 着弾塗り(伸び形状)＋中間塗り＋塗りポイント加算。
-// 2D版のupdateProjectiles()内、着弾/命中時のcreditCappedPaintPoints()呼び
-// 出しに相当する。
 function paintImpactSplat(p, landPos){
   const traveledLines = p.traveled / METERS_PER_LINE;
   const radiusLines = getSplatRadiusLines(WEAPON, traveledLines);
   const stretchRatio = getStretchRatio(WEAPON, traveledLines);
   paintSplatStretchedAtWorld(landPos.x, landPos.z, radiusLines, p.dirAngleXZ, stretchRatio);
-  // 軌跡塗り(経路上のドット)は弾の飛行中にリアルタイムで発生済み
-  // (updateProjectiles内、実際の位置p.posを起点に発生させている)ため、
-  // ここでは着弾塗り本体のぶんだけ塗りポイントを加算すればよい。
   creditCappedPaintPoints(WEAPON.singleShotPaintPoints);
 }
 
@@ -2406,35 +2142,24 @@ function getShotDamage(frameNumber){
   return Math.floor(raw * 10) / 10;
 }
 
-// 弾1発分、1フレーム(概念上)ぶんの速度ベクトルをフェーズに応じて更新する。
-// dtが1/60秒ちょうどでない場合(可変フレームレート)は、フレーム相当数
-// framesEquivだけこのステップを繰り返し適用することで、"1Fおきに"という
-// 仕様の意味合い(離散フレーム更新)をできるだけ保つ。
 function advanceProjectileVelocityOneFrame(p){
   const bm = BALLISTICS_MPS;
   if (p.phase === 'straight'){
-    // (A)は重力・空気抵抗の影響を受けず一定。frameCountがBに達したら
-    // 減速状態へ遷移する(遷移時、速度が(C)より速ければ(C)まで落とす)。
     if (p.frameCount >= bm.straightFrames){
       p.phase = 'brake';
       const speed = p.vel.length();
       if (speed > bm.brakeMaxSpeed && speed > 0){
         p.vel.multiplyScalar(bm.brakeMaxSpeed / speed);
       }
-      // 「ブレーキ状態になった1F目から割合減速が適用される」ため、
-      // このフレーム内でそのまま減速状態の処理へフォールスルーする。
     } else {
-      return; // 直進中は速度ベクトルを変化させない
+      return;
     }
   }
 
   if (p.phase === 'brake'){
-    // 1F前の速度に(1-D)を乗算し、その後Y速度から(E)を減算する。
     p.vel.multiplyScalar(1 - bm.brakeDrag);
-    p.vel.y -= bm.brakeGravity / FPS; // brakeGravityはm/s²なので1F分(1/FPS秒分)だけ適用
+    p.vel.y -= bm.brakeGravity / FPS;
 
-    // 下限速度(F)判定: XZ速度・Y速度がそれぞれの下限を下回った場合、
-    // その軸は下限値まで引き上げる(向きは保ったまま)。
     const xzSpeed = Math.hypot(p.vel.x, p.vel.z);
     let xzBelowFloor = false, yBelowFloor = false;
     if (xzSpeed < bm.floorSpeedXZ){
@@ -2448,13 +2173,11 @@ function advanceProjectileVelocityOneFrame(p){
       yBelowFloor = true;
       p.vel.y = p.vel.y >= 0 ? bm.floorSpeedY : -bm.floorSpeedY;
     }
-    // 両方が下限を下回っていたら自由落下状態へ移行。
     if (xzBelowFloor && yBelowFloor) p.phase = 'freefall';
     return;
   }
 
   if (p.phase === 'freefall'){
-    // 空気抵抗(G)と重力(H)以外は減速状態と全く同じ計算式。
     p.vel.multiplyScalar(1 - bm.freefallDrag);
     p.vel.y -= bm.freefallGravity / FPS;
   }
@@ -2464,8 +2187,6 @@ function updateProjectiles(dt){
   for (const p of projectiles){
     if (!p.alive) continue;
 
-    // 可変dtをFPS基準の「フレーム」単位に分解して、直進フレーム数(B)の
-    // カウントや、1Fごとの割合減速が仕様通りの粒度で効くようにする。
     let remaining = dt;
     const frameDt = 1 / FPS;
     while (remaining > 0 && p.alive){
@@ -2476,75 +2197,40 @@ function updateProjectiles(dt){
       const next = p.pos.clone().add(moveVec);
       p.traveled += moveVec.length();
 
-      // ヒト状態の当たり判定カプセル(直径0.7m×高さ1.65m)で練習用ダミーへの
-      // ヒットを判定する。弾自体の当たり判定サイズは公式実測値(弾の大きさ
-      // (敵):0.114DU=直径)をBULLET_RADIUS_ENEMY_Mへ変換して使用する
-      // (以前は0.05mの仮置き値だった)。
       const hitDummy = dummy.hp > 0 && capsuleHitTest(
         next, dummy.position.x, dummy.position.z, 0, HUMAN_HITBOX, BULLET_RADIUS_ENEMY_M
       );
-      // 着弾塗りは「実際に床(y<=0)へ到達した瞬間」だけを起点にする
-      // (以前あった「射程(maxRangeLines)に達したら、まだ空中にいても即着弾
-      // 扱いにする」処理は撤去した — 見た目の弾がまだ浮いているのに塗りだけ
-      // 先に発生してしまう不整合の原因だったため)。地形への当たり判定サイズ
-      // (公式実測: 弾の大きさ(地形)0.08DU=直径 → BULLET_RADIUS_TERRAIN_M)を
-      // 見込んで、半径ぶん早めに着地とみなす。
       const hitFloor = next.y <= BULLET_RADIUS_TERRAIN_M;
-      // 射程ハードキャップ(公式実測: カス当たり射程2.7ライン=13.5m)。
-      // 減速・自由落下フェーズの係数(C)(D)(E)(F)は依然【要検証・暫定】であり、
-      // 特に水平〜やや上向きの射撃では自由落下時の重力が弱すぎて弾がほぼ
-      // 水平のまま飛び続け、着弾までの距離が仕様上ありえない長さ(10m台後半〜)
-      // になってしまう問題があった。正確な弾道係数が判明するまでの実用的な
-      // 対策として、実測済みの「カス当たり射程」を絶対的な飛距離上限として
-      // 課し、それを超えた瞬間その場(y=0)へ強制着弾させる。
-      // ※本来カス当たり射程は「ジャンプせずに届く最大距離」の定義だが、この
-      // プロトタイプではジャンプ中も含め一律の上限として簡易的に適用している。
       const MAX_RANGE_M = linesToMeters(WEAPON.maxRangeLines);
       const rangeCapped = p.traveled >= MAX_RANGE_M;
-      // アリーナの外(水平方向)へ抜けた、または想定外に高く飛び続けた場合は、
-      // 塗りを発生させずに消える(射撃レンジの外なので塗りキャンバス上でも
-      // 扱いようがない)。
       const leftArena = Math.abs(next.x) > WALL_HALF || Math.abs(next.z) > WALL_HALF || next.y > 8;
-      const expired = p.frameCount > FPS * 5; // 安全装置: 約5秒で強制消滅(塗りなし)
+      const expired = p.frameCount > FPS * 5;
 
       if (hitDummy){
         const dmg = getShotDamage(p.frameCount);
-        dummy.hp = Math.max(0, dummy.hp - dmg);
-        updateDummyHpUI();
-        if (dummy.hp === 0){
-          killCount++;
-          document.getElementById('kill-count').textContent = `撃破数: ${killCount}`;
-          setTimeout(respawnDummy, 500);
-        }
+        damageDummy(dmg);
         paintImpactSplat(p, next);
         scene.remove(p.mesh);
         p.alive = false;
       } else if (hitFloor){
         const landPos = next.clone();
-        landPos.y = 0; // 塗りキャンバスは高さを持たないため、床面(y=0)に固定する
+        landPos.y = 0;
         paintImpactSplat(p, landPos);
         scene.remove(p.mesh);
         p.alive = false;
       } else if (rangeCapped){
-        // カス当たり射程に到達: まだ空中に浮いていても、その場(現在のXZ位置・
-        // y=0)へ強制着弾させる。
         const landPos = next.clone();
         landPos.y = 0;
         paintImpactSplat(p, landPos);
         scene.remove(p.mesh);
         p.alive = false;
       } else if (leftArena || expired){
-        // 床に触れないまま消える場合は塗りを発生させない。
         scene.remove(p.mesh);
         p.alive = false;
       } else {
         p.pos.copy(next);
         p.mesh.position.copy(next);
 
-        // 軌跡塗り: 弾本体(見た目のメッシュと同じp.pos)を起点に、実際に
-        // 重力で曲がりながら進んだ経路距離(p.traveled、直線補間ではなく
-        // 実測の飛行距離)が一定間隔を超えるたびに、その"現在位置"へ塗りを
-        // 発生させる。弾が実際にいる場所と塗りの発生位置が常に一致する。
         if (WEAPON.midPaintIntervalLines !== undefined){
           const intervalM = linesToMeters(WEAPON.midPaintIntervalLines);
           while (p.traveled - p.trailPaintedAt >= intervalM){
@@ -2566,8 +2252,6 @@ function updateProjectiles(dt){
   }
 }
 
-// 連射精度補正の毎フレーム更新: 撃っていない間、回復量(0.0729°/F)ずつ
-// currentCorrectionDegを0まで減らしていく(公式実測値: 22Fで全回復)。
 function updateFiringAccuracyState(firing){
   if (!firing && currentCorrectionDeg > 0){
     currentCorrectionDeg = Math.max(0, currentCorrectionDeg - WEAPON.correctionRecoveryPerFrameDeg);
@@ -2578,15 +2262,11 @@ function updateWeapon(dt, firing){
   updateFiringAccuracyState(firing);
 
   const now = performance.now();
-  // イカ状態では発射不可(2Dプロトタイプと同じ制約)。投擲構え中(throwAimHeld)
-  // もクイックボムの構えモーション優先のため、メイン射撃は行わない。
-  if (mouseDown && pointerLocked && form === 'human' && !throwAimHeld){
+  if (mouseDown && pointerLocked && form === 'human' && !throwAimHeld && !mainWeaponBlocked()){
     if (!firstShotOfBurstFired){
-      // このバーストの最初の1発は、射撃前隙(firingWindupFrames)が
-      // 経過するまで待つ(ヒト状態2F / イカ→ヒト遷移直後10F)。
       if (now - firingWindupStartAt >= framesToSeconds(firingWindupFrames) * 1000){
         firstShotOfBurstFired = true;
-        fireShot(); // fireShot()内でlastShotAtが更新されるので、以降は連射F間隔のチェックがそのまま効く
+        fireShot();
       }
     } else if (now - lastShotAt >= WEAPON.fireIntervalSec * 1000){
       fireShot();
@@ -2596,9 +2276,6 @@ function updateWeapon(dt, firing){
 }
 
 function updateInk(dt, firing){
-  // インク回復不能時間: メイン武器(20F)・クイックボム(60F)それぞれの
-  // 最終使用時刻から、より遅く明ける方を基準に自然回復の開始を待つ
-  // (公式仕様通り、サブを投げた直後はメインより長く回復が止まる)。
   if (!firing){
     const now = performance.now();
     const mainLockoutMs = framesToSeconds(WEAPON.inkRegenLockoutFrames) * 1000;
@@ -2613,22 +2290,893 @@ function updateInk(dt, firing){
   document.getElementById('ink-gauge-inner').style.width = (player.ink / player.maxInk * 100) + '%';
 }
 
-// 射撃後隙(postFireLockUntil)の間は、イカ状態への変形リクエスト(右クリック)を
-// 実際には保留し、後隙が明けた瞬間に反映する。squidFormRequested は
-// mousedown/mouseupハンドラで更新される「プレイヤーが右クリックを押しているか」
-// の生の入力状態で、実際のform変数はこの関数経由でのみ更新する。
 let squidFormRequested = false;
 function updateSquidFormLock(){
   const now = performance.now();
   const locked = now < postFireLockUntil;
+  const daiouActiveNow = currentSpecial().type === 'daioika' && player.specialPhase !== 'none';
+  if (daiouActiveNow){
+    // ダイオウイカ変身中は通常のイカ状態への切り替えを行わない(2D版と同じ)。
+    return;
+  }
   if (squidFormRequested && !locked){
     form = 'squid';
   } else if (!squidFormRequested){
     form = 'human';
   }
-  // 直前フレームがイカ状態だったかを記録しておく(次にトリガーを引いた瞬間の
-  // 射撃前隙10F判定=wasSquidRecentlyForStartupで使用)。
   wasSquidRecentlyForStartup = (form === 'squid');
+}
+
+// ==========================================================================
+// スペシャル発動・各スペシャルの実装(2Dプロトタイプからの移植)
+// ==========================================================================
+
+// スペシャル関連の状態を初期状態へ戻す(2D版のresetSpecialState()を移植)。
+function resetSpecialState(keepGauge){
+  player.specialActive = false;
+  player.specialPhase = 'none';
+  player.specialPhaseFramesLeft = 0;
+  player.specialUsableFramesLeft = 0;
+  player.specialThrowFramesElapsed = 0;
+  player.specialThrowPending = false;
+  player.specialPostThrowFramesLeft = 0;
+  player.spLockedFramesLeft = 0;
+  if (!keepGauge) player.spGauge = 0;
+  player.supershotPreShotFramesLeft = 0;
+  player.daiouSpinActive = false;
+  player.daiouSpinFramesLeft = 0;
+  player.daiouSpinPhase = 'rise';
+  player.daiouSpinHitDone = false;
+  guideProjectile = null;
+  if (guideMesh){ scene.remove(guideMesh); guideMesh = null; }
+  tornado.active = false;
+  tornado.paintedPoints = 0;
+  if (tornadoMesh){ tornadoMesh.visible = false; }
+  if (tornadoWarnRing){ tornadoWarnRing.visible = false; }
+  superShotProjectiles.forEach(p => scene.remove(p.mesh));
+  superShotProjectiles.length = 0;
+  megalaser.setsFired = 0;
+  megalaser.firstLockedTarget = null;
+  megalaser.nextSetFramesLeft = 0;
+  megaLasers.forEach(l => scene.remove(l.mesh));
+  megaLasers.length = 0;
+  player.sensorJumpFramesLeft = 0;
+  player.sensorJumpTotalFrames = 0;
+  sensorMarker.visible = false;
+  daiouAttackRing.visible = false;
+}
+
+function switchSpecial(index){
+  if (index === player.specialIndex) return;
+  player.specialIndex = index;
+  player.spGaugeMax = currentSpecial().requiredPoints;
+  resetSpecialState();
+}
+
+// スペシャル発動(R押下)。2D版のactivateSpecial()を移植。
+function activateSpecial(){
+  const sp = currentSpecial();
+  const wasSquidAtActivation = form === 'squid';
+  player.specialActive = true;
+  player.specialPhase = 'activating';
+  player.specialPhaseFramesLeft = sp.activateDelayFrames;
+  player.specialUsableFramesLeft = sp.maxHoldFrames !== undefined ? sp.maxHoldFrames : 0;
+  player.specialThrowFramesElapsed = 0;
+  player.specialThrowPending = false;
+  player.supershotPreShotFramesLeft = 0;
+  player.daiouSpinActive = false;
+  player.daiouSpinFramesLeft = 0;
+  player.daiouSpinHitDone = false;
+  megalaser.setsFired = 0;
+  megalaser.firstLockedTarget = null;
+  megalaser.nextSetFramesLeft = 0;
+  megaLasers.forEach(l => scene.remove(l.mesh));
+  megaLasers.length = 0;
+
+  player.ink = player.maxInk;
+  if (sp.type !== 'supersensor'){
+    form = 'human';
+    squidFormRequested = false;
+  }
+  throwAimHeld = false;
+  pendingBombThrowAt = null;
+
+  player.spGauge = 0;
+
+  if (sp.type === 'megalaser'){
+    player.spLockedFramesLeft = MEGALASER_GAUGE_DRAIN_TOTAL_FRAMES;
+  }
+  if (sp.type === 'supersensor'){
+    spawnSensorActivationRing(playerGroup.position.clone());
+    if (!wasSquidAtActivation){
+      player.sensorJumpFramesLeft = 12;
+      player.sensorJumpTotalFrames = 12;
+    } else {
+      player.sensorJumpFramesLeft = 0;
+      player.sensorJumpTotalFrames = 0;
+    }
+  }
+}
+
+function cancelSpecial(){
+  player.specialActive = false;
+  player.specialPhase = 'none';
+  player.specialPhaseFramesLeft = 0;
+  player.specialUsableFramesLeft = 0;
+  player.specialThrowFramesElapsed = 0;
+  player.specialThrowPending = false;
+  player.specialPostThrowFramesLeft = 0;
+  guideProjectile = null;
+  if (guideMesh){ scene.remove(guideMesh); guideMesh = null; }
+}
+
+// --------------------------------------------------------------------------
+// トルネード — ガイドを投げ、着地点に竜巻が発生する。
+// --------------------------------------------------------------------------
+let guideProjectile = null;
+let guideMesh = null;
+const guideGeo = new THREE.SphereGeometry(0.12, 10, 8);
+const guideMat = new THREE.MeshBasicMaterial({ color: TEAM_COLOR });
+
+const tornado = { active: false, x: 0, z: 0, framesElapsed: 0, paintedPoints: 0, dissolveFramesElapsed: 0 };
+const tornadoMesh = new THREE.Group();
+const tornadoBodyMat = new THREE.MeshBasicMaterial({ color: TEAM_COLOR, transparent: true, opacity: 0.65 });
+const tornadoBody = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 2.2, 20, 1, true), tornadoBodyMat);
+tornadoMesh.add(tornadoBody);
+const tornadoRing = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.02, 24), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, side: THREE.DoubleSide }));
+tornadoRing.rotation.x = -Math.PI / 2;
+tornadoRing.position.y = 0.02;
+tornadoMesh.add(tornadoRing);
+tornadoMesh.visible = false;
+scene.add(tornadoMesh);
+
+const tornadoWarnRing = new THREE.Mesh(
+  new THREE.RingGeometry(0.85, 1.0, 24),
+  new THREE.MeshBasicMaterial({ color: 0xff5028, transparent: true, opacity: 0.7, side: THREE.DoubleSide })
+);
+tornadoWarnRing.rotation.x = -Math.PI / 2;
+tornadoWarnRing.position.y = 0.02;
+tornadoWarnRing.visible = false;
+scene.add(tornadoWarnRing);
+
+function releaseGuideThrow(){
+  if (player.specialThrowFramesElapsed >= TORNADO_SPECIAL.preThrowFrames){
+    launchGuide();
+  } else {
+    player.specialThrowPending = true;
+  }
+}
+
+function launchGuide(){
+  const sp = TORNADO_SPECIAL;
+  const maxRangeM = linesToMeters(sp.throwRangeLines);
+  const dir = getAimDirection();
+  const origin = playerGroup.position.clone().add(new THREE.Vector3(0, MUZZLE_HEIGHT, 0));
+  const vel = dir.clone().multiplyScalar(duPerFrameToMPerSec(sp.throwSpeedDU));
+  guideProjectile = { pos: origin.clone(), vel, traveled: 0, range: maxRangeM };
+  guideMesh = new THREE.Mesh(guideGeo, guideMat);
+  guideMesh.position.copy(origin);
+  scene.add(guideMesh);
+  player.specialPhase = 'guideFlying';
+  player.specialPostThrowFramesLeft = sp.postThrowFrames;
+}
+
+function updateGuideProjectile(dt){
+  if (!guideProjectile) return;
+  const g = guideProjectile;
+  const result = stepThrowablePhysics(g.pos, g.vel, dt, g.traveled, g.range, undefined);
+  if (result.hit){
+    landTornadoAt(result.hit.pos.x, result.hit.pos.z);
+    if (guideMesh){ scene.remove(guideMesh); guideMesh = null; }
+    guideProjectile = null;
+  } else {
+    g.pos.copy(result.pos);
+    g.vel.copy(result.vel);
+    g.traveled = result.traveled;
+    if (guideMesh) guideMesh.position.copy(g.pos);
+  }
+}
+
+function currentTornadoRadiusFraction(){
+  return Math.min(1, tornado.framesElapsed / TORNADO_SPECIAL.radiusGrowFrames);
+}
+function currentTornadoDamageRadiusLines(){
+  const sp = TORNADO_SPECIAL;
+  const t = currentTornadoRadiusFraction();
+  return sp.startRadiusLines + (sp.finalDamageRadiusLines - sp.startRadiusLines) * t;
+}
+function currentTornadoPaintRadiusLines(){
+  const sp = TORNADO_SPECIAL;
+  const t = currentTornadoRadiusFraction();
+  return sp.startRadiusLines + (sp.finalPaintRadiusLines - sp.startRadiusLines) * t;
+}
+
+function landTornadoAt(x, z){
+  const sp = TORNADO_SPECIAL;
+  tornado.active = true;
+  tornado.x = x; tornado.z = z;
+  tornado.framesElapsed = 0;
+  tornado.paintedPoints = 0;
+  tornado.dissolveFramesElapsed = 0;
+  player.specialPhase = 'tornado';
+  player.specialPhaseFramesLeft = sp.damageDurationFrames;
+  player.spLockedFramesLeft = Math.max(player.spLockedFramesLeft, sp.burstVisualFrames);
+  tornadoMesh.visible = true;
+  tornadoMesh.position.set(x, 0, z);
+  paintTornadoTick();
+}
+
+function paintTornadoTick(){
+  const sp = TORNADO_SPECIAL;
+  if (tornado.paintedPoints >= sp.paintPoints) return;
+  if (tornado.framesElapsed > sp.radiusGrowFrames) return;
+  const r = currentTornadoPaintRadiusLines();
+  const before = totalPaintPoints;
+  paintSplatAtWorld(tornado.x, tornado.z, r * 1.2);
+  for (let i = 0; i < 5; i++){
+    const a = (i / 5) * Math.PI * 2 + Math.random() * 0.6;
+    const d = r * (0.35 + Math.random() * 0.35);
+    paintSplatAtWorld(tornado.x + Math.cos(a) * linesToMeters(d), tornado.z + Math.sin(a) * linesToMeters(d), r * (0.55 + Math.random() * 0.25));
+  }
+  tickPaintPoints();
+  const delta = totalPaintPoints - before;
+  const remaining = sp.paintPoints - tornado.paintedPoints;
+  const credited = Math.min(delta, remaining);
+  totalPaintPoints = before + credited;
+  tornado.paintedPoints += credited;
+  addPaintPointsToSpGauge(credited);
+}
+
+function applyTornadoDamage(framesDelta){
+  const sp = TORNADO_SPECIAL;
+  const rM = linesToMeters(currentTornadoDamageRadiusLines());
+  const dummyPos3 = new THREE.Vector3(dummy.position.x, 0.9, dummy.position.z);
+  const tornadoPos = new THREE.Vector3(tornado.x, 0.9, tornado.z);
+  if (dummy.hp > 0 && dummyPos3.distanceTo(tornadoPos) < dummy.radius + rM){
+    const raw = sp.damageStart - sp.damagePerFrameDecay * tornado.framesElapsed;
+    const dmgPerFrame = Math.max(0, raw);
+    damageDummy(dmgPerFrame * framesDelta);
+  }
+}
+
+// --------------------------------------------------------------------------
+// スーパーショット — メインを一時的に持ち替えて強力な弾を連射する。
+// --------------------------------------------------------------------------
+const superShotProjectiles = [];
+const superShotGeo = new THREE.SphereGeometry(0.12, 10, 8);
+const superShotMat = new THREE.MeshBasicMaterial({ color: TEAM_COLOR });
+let lastSuperShotAt = -Infinity;
+
+function fireSuperShot(){
+  const sp = SUPER_SHOT_SPECIAL;
+  const dir = getAimDirection();
+  const origin = playerGroup.position.clone().add(new THREE.Vector3(0, MUZZLE_HEIGHT, 0));
+  const vel = dir.clone().multiplyScalar(duPerFrameToMPerSec(sp.projectileSpeedDU));
+  const rangeM = linesToMeters(sp.directHitRangeLines);
+
+  spawnFallingInkDrop(playerGroup.position.x, playerGroup.position.y, playerGroup.position.z, player.vx, vy, player.vz, sp.footPaintRadiusLines);
+
+  const mesh = new THREE.Mesh(superShotGeo, superShotMat);
+  mesh.position.copy(origin);
+  scene.add(mesh);
+
+  superShotProjectiles.push({
+    mesh, pos: origin.clone(), vel, traveled: 0, range: rangeM,
+    trailPaintedAt: 0, alive: true,
+  });
+  lastSuperShotAt = performance.now();
+}
+
+function updateSuperShotProjectiles(dt){
+  const sp = SUPER_SHOT_SPECIAL;
+  for (const p of superShotProjectiles){
+    if (!p.alive) continue;
+    const result = stepThrowablePhysics(p.pos, p.vel, dt, p.traveled, p.range, undefined);
+    const intervalM = linesToMeters(sp.trailRadiusLines) * 2;
+    if (result.hit){
+      const h = result.hit;
+      const landPos = h.pos;
+      paintSplatAtWorld(landPos.x, landPos.z, sp.tipSplatRadiusLines);
+      tickPaintPointsAndFeedGauge();
+      if (h.type === 'dummy'){
+        damageDummy(sp.damageDirect, landPos.clone().add(new THREE.Vector3(0, 0.3, 0)));
+      }
+      scene.remove(p.mesh);
+      p.alive = false;
+    } else {
+      p.pos.copy(result.pos);
+      p.mesh.position.copy(result.pos);
+      p.traveled = result.traveled;
+      while (p.traveled - p.trailPaintedAt >= intervalM){
+        p.trailPaintedAt += intervalM;
+        paintSplatAtWorld(p.pos.x, p.pos.z, sp.trailRadiusLines);
+        tickPaintPointsAndFeedGauge();
+      }
+    }
+  }
+  for (let i = superShotProjectiles.length - 1; i >= 0; i--){
+    if (!superShotProjectiles[i].alive) superShotProjectiles.splice(i, 1);
+  }
+}
+
+// --------------------------------------------------------------------------
+// ダイオウイカ — 巨大化・無敵・自陣色で塗り走り・回転攻撃。
+// --------------------------------------------------------------------------
+function startDaiouSpinAttack(){
+  const sp = DAIOU_IKA_SPECIAL;
+  player.daiouSpinActive = true;
+  player.daiouSpinPhase = 'rise';
+  player.daiouSpinFramesLeft = sp.spinRiseFrames + sp.spinFallFrames;
+  player.daiouSpinHitDone = false;
+}
+
+function updateDaiouSpinAttack(framesDelta){
+  if (!player.daiouSpinActive) return;
+  const sp = DAIOU_IKA_SPECIAL;
+
+  daiouAttackRing.visible = true;
+  daiouAttackRing.position.set(playerGroup.position.x, 0.03, playerGroup.position.z);
+  daiouAttackRing.scale.setScalar(linesToMeters(sp.spinDamageRadiusLines));
+
+  if (!player.daiouSpinHitDone){
+    const rM = linesToMeters(sp.spinDamageRadiusLines);
+    const dummyPos3 = new THREE.Vector3(dummy.position.x, 0.9, dummy.position.z);
+    const selfPos3 = new THREE.Vector3(playerGroup.position.x, 0.9, playerGroup.position.z);
+    if (dummy.hp > 0 && dummyPos3.distanceTo(selfPos3) < dummy.radius + rM){
+      damageDummy(sp.spinDamage);
+      player.daiouSpinHitDone = true;
+    }
+  }
+
+  if (player.daiouSpinPhase === 'rise' && player.daiouSpinFramesLeft <= sp.spinFallFrames){
+    player.daiouSpinPhase = 'fall';
+  }
+
+  player.daiouSpinFramesLeft -= framesDelta;
+  if (player.daiouSpinFramesLeft <= 0){
+    paintSplatAtWorld(playerGroup.position.x, playerGroup.position.z, sp.landingSplatRadiusLines);
+    tickPaintPointsAndFeedGauge();
+    player.daiouSpinActive = false;
+    player.daiouSpinFramesLeft = 0;
+    player.daiouSpinPhase = 'rise';
+    player.daiouSpinHitDone = false;
+    daiouAttackRing.visible = false;
+  }
+}
+
+// 「設置された敵のボムに接触するとそのボムを消す」— このプロトタイプは
+// 自分自身のボムしか無いため、便宜上、変身中に自分のクイックボムへ触れたら
+// 無効化する(2D版の仕様の踏襲。実際には敵のボムが無いので発火頻度は低い)。
+function handleDaiouBombCollisions(){
+  const rM = (DAIOU_IKA_SPECIAL.hitboxDiameterMeters / 2);
+  for (const bomb of bombs){
+    if (!bomb.alive) continue;
+    if (bomb.pos.distanceTo(playerGroup.position) < rM){
+      scene.remove(bomb.mesh);
+      bomb.alive = false;
+    }
+  }
+}
+
+// --------------------------------------------------------------------------
+// メガホンレーザー5.1ch — ロックオン式の誘導レーザーを3セット(計6本)照射。
+// --------------------------------------------------------------------------
+const megalaser = { setsFired: 0, nextSetFramesLeft: 0, firstLockedTarget: null };
+const megaLasers = [];
+const dummyPositionHistory = [];
+const POSITION_HISTORY_MAX_AGE_SEC = 1.0;
+
+function recordDummyPositionHistory(){
+  const t = performance.now() / 1000;
+  dummyPositionHistory.push({ t, x: dummy.position.x, z: dummy.position.z });
+  while (dummyPositionHistory.length > 1 && t - dummyPositionHistory[0].t > POSITION_HISTORY_MAX_AGE_SEC){
+    dummyPositionHistory.shift();
+  }
+}
+function getDelayedDummyPosition(delaySec){
+  if (dummyPositionHistory.length === 0) return { x: dummy.position.x, z: dummy.position.z };
+  const targetT = performance.now() / 1000 - delaySec;
+  const first = dummyPositionHistory[0];
+  if (targetT <= first.t) return { x: first.x, z: first.z };
+  const last = dummyPositionHistory[dummyPositionHistory.length - 1];
+  if (targetT >= last.t) return { x: last.x, z: last.z };
+  for (let i = 1; i < dummyPositionHistory.length; i++){
+    const a = dummyPositionHistory[i - 1], b = dummyPositionHistory[i];
+    if (targetT >= a.t && targetT <= b.t){
+      const span = b.t - a.t;
+      const frac = span > 0 ? (targetT - a.t) / span : 0;
+      return { x: a.x + (b.x - a.x) * frac, z: a.z + (b.z - a.z) * frac };
+    }
+  }
+  return { x: last.x, z: last.z };
+}
+
+function findLockOnCandidate(){
+  if (dummy.hp <= 0) return null;
+  const dx = dummy.position.x - playerGroup.position.x;
+  const dz = dummy.position.z - playerGroup.position.z;
+  const dist = Math.hypot(dx, dz);
+  if (dist < 0.001) return dummy;
+  const targetAngle = Math.atan2(dx, dz); // yaw convention: sin(yaw),cos(yaw)
+  const diff = Math.abs(Math.atan2(Math.sin(targetAngle - yaw), Math.cos(targetAngle - yaw))) * 180 / Math.PI;
+  return diff <= MEGALASER_SPECIAL.lockOnAngleDeg / 2 ? dummy : null;
+}
+
+function createLaserMesh(){
+  const geo = new THREE.CylinderGeometry(0.03, 0.03, 1, 6, 1, true);
+  geo.translate(0, 0.5, 0);
+  geo.rotateX(Math.PI / 2);
+  const mat = new THREE.MeshBasicMaterial({ color: TEAM_COLOR, transparent: true, opacity: 0.85 });
+  return new THREE.Mesh(geo, mat);
+}
+
+function fireMegalaserSet(){
+  let target = findLockOnCandidate();
+  if (!target && megalaser.firstLockedTarget && megalaser.firstLockedTarget.hp > 0){
+    target = megalaser.firstLockedTarget;
+  }
+  const locked = target !== null;
+  if (locked && !megalaser.firstLockedTarget) megalaser.firstLockedTarget = target;
+  for (let i = 0; i < MEGALASER_SPECIAL.lasersPerSet; i++){
+    const mesh = createLaserMesh();
+    mesh.visible = false;
+    scene.add(mesh);
+    if (locked){
+      megaLasers.push({ target, missAngle: undefined, telegraphFramesLeft: MEGALASER_SPECIAL.telegraphFrames, durationFramesLeft: MEGALASER_SPECIAL.laserDurationFrames, tickTimer: 0, mesh, alive: true });
+    } else {
+      const missAngle = yaw + (i === 0 ? -1 : 1) * (25 + Math.random() * 20) * Math.PI / 180;
+      megaLasers.push({ target: null, missAngle, telegraphFramesLeft: MEGALASER_SPECIAL.telegraphFrames, durationFramesLeft: MEGALASER_SPECIAL.laserDurationFrames, tickTimer: 0, mesh, alive: true });
+    }
+  }
+}
+
+function laserHitsTarget(originX, originZ, dirAngle, targetX, targetZ, targetRadius){
+  const dirX = Math.sin(dirAngle), dirZ = Math.cos(dirAngle);
+  const dx = targetX - originX, dz = targetZ - originZ;
+  const projLen = dx * dirX + dz * dirZ;
+  if (projLen < 0) return false;
+  const closestX = originX + dirX * projLen;
+  const closestZ = originZ + dirZ * projLen;
+  return Math.hypot(targetX - closestX, targetZ - closestZ) < targetRadius;
+}
+
+function convertMegaLaserToDiverging(l){
+  const lastTracked = getDelayedDummyPosition(MEGALASER_SPECIAL.trackingDelaySec);
+  const baseAngle = Math.atan2(lastTracked.x - playerGroup.position.x, lastTracked.z - playerGroup.position.z);
+  const sign = Math.random() < 0.5 ? -1 : 1;
+  l.missAngle = baseAngle + sign * (25 + Math.random() * 20) * Math.PI / 180;
+  l.target = null;
+}
+
+function updateMegaLasers(dt){
+  const framesDelta = dt * FPS;
+  const originX = playerGroup.position.x, originZ = playerGroup.position.z;
+  const infiniteLen = 200;
+  for (const l of megaLasers){
+    if (!l.alive) continue;
+    if (l.target && l.target.hp <= 0) convertMegaLaserToDiverging(l);
+
+    let dirAngle;
+    if (l.target){
+      const tracked = getDelayedDummyPosition(MEGALASER_SPECIAL.trackingDelaySec);
+      dirAngle = Math.atan2(tracked.x - originX, tracked.z - originZ);
+    } else {
+      dirAngle = l.missAngle;
+    }
+
+    if (l.telegraphFramesLeft > 0){
+      l.telegraphFramesLeft = Math.max(0, l.telegraphFramesLeft - framesDelta);
+      l.mesh.visible = false;
+    } else {
+      l.mesh.visible = true;
+      l.mesh.position.set(originX, MUZZLE_HEIGHT, originZ);
+      l.mesh.rotation.set(0, dirAngle, 0);
+      l.mesh.scale.set(1, 1, infiniteLen);
+
+      let hit = false;
+      if (l.target && l.target.hp > 0){
+        const tracked = getDelayedDummyPosition(MEGALASER_SPECIAL.trackingDelaySec);
+        hit = laserHitsTarget(originX, originZ, dirAngle, tracked.x, tracked.z, dummy.radius);
+      } else if (dummy.hp > 0){
+        hit = laserHitsTarget(originX, originZ, dirAngle, dummy.position.x, dummy.position.z, dummy.radius);
+      }
+      if (hit){
+        l.tickTimer += framesDelta;
+        while (l.tickTimer >= MEGALASER_SPECIAL.damageTickIntervalFrames){
+          l.tickTimer -= MEGALASER_SPECIAL.damageTickIntervalFrames;
+          if (dummy.hp <= 0) break;
+          damageDummy(MEGALASER_SPECIAL.damagePerTick);
+        }
+      }
+      l.durationFramesLeft -= framesDelta;
+      if (l.durationFramesLeft <= 0) l.alive = false;
+    }
+  }
+  for (let i = megaLasers.length - 1; i >= 0; i--){
+    if (!megaLasers[i].alive){
+      scene.remove(megaLasers[i].mesh);
+      megaLasers.splice(i, 1);
+    }
+  }
+}
+
+// --------------------------------------------------------------------------
+// スーパーセンサー — ダミーの位置をマーキング表示するだけの索敵スペシャル。
+// --------------------------------------------------------------------------
+const sensorMarker = new THREE.Group();
+const sensorMarkerCone = new THREE.Mesh(
+  new THREE.ConeGeometry(0.13, 0.22, 4),
+  new THREE.MeshBasicMaterial({ color: 0xffe066 })
+);
+sensorMarkerCone.rotation.x = Math.PI;
+sensorMarker.add(sensorMarkerCone);
+sensorMarker.visible = false;
+scene.add(sensorMarker);
+
+const sensorActivationRings = [];
+function spawnSensorActivationRing(worldPos){
+  const mesh = new THREE.Mesh(
+    new THREE.RingGeometry(0.3, 0.4, 24),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8, side: THREE.DoubleSide })
+  );
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.copy(worldPos);
+  mesh.position.y = 0.05;
+  scene.add(mesh);
+  sensorActivationRings.push({ mesh, bornAt: performance.now() });
+}
+function updateSensorActivationRings(){
+  const now = performance.now();
+  const LIFE = 500;
+  for (let i = sensorActivationRings.length - 1; i >= 0; i--){
+    const r = sensorActivationRings[i];
+    const age = now - r.bornAt;
+    if (age >= LIFE){ scene.remove(r.mesh); sensorActivationRings.splice(i, 1); continue; }
+    const t = age / LIFE;
+    const scale = 1 + t * 12;
+    r.mesh.scale.set(scale, scale, scale);
+    r.mesh.material.opacity = 0.8 * (1 - t);
+  }
+}
+
+// --------------------------------------------------------------------------
+// スペシャル本体の毎フレーム更新(2D版のupdateSpecial()を移植)。
+// --------------------------------------------------------------------------
+function updateSpecial(dt){
+  const sp = currentSpecial();
+  const framesDelta = dt * FPS;
+
+  if (player.spLockedFramesLeft > 0){
+    player.spLockedFramesLeft = Math.max(0, player.spLockedFramesLeft - framesDelta);
+  }
+  if (player.specialPostThrowFramesLeft > 0){
+    player.specialPostThrowFramesLeft = Math.max(0, player.specialPostThrowFramesLeft - framesDelta);
+  }
+
+  if (sp.type === 'tornado'){
+    const preLaunchPhase = player.specialPhase === 'activating' || player.specialPhase === 'holding' || player.specialPhase === 'throwing';
+    if (preLaunchPhase){
+      player.specialUsableFramesLeft -= framesDelta;
+      if (player.specialUsableFramesLeft <= 0){
+        cancelSpecial();
+        return;
+      }
+    }
+  }
+
+  if (player.specialPhase === 'activating'){
+    player.specialPhaseFramesLeft -= framesDelta;
+    if (player.specialPhaseFramesLeft <= 0){
+      if (sp.type === 'supershot'){
+        player.specialPhase = 'supershotActive';
+        player.specialPhaseFramesLeft = sp.durationFrames;
+        player.supershotPreShotFramesLeft = sp.preShotFrames;
+        player.specialActive = false;
+      } else if (sp.type === 'daioika'){
+        player.specialPhase = 'daiou';
+        player.specialPhaseFramesLeft = sp.durationFrames;
+        player.specialActive = false;
+        player.daiouSpinActive = false;
+      } else if (sp.type === 'bombrush'){
+        player.specialPhase = 'bombrushActive';
+        player.specialPhaseFramesLeft = sp.durationFrames;
+        player.specialActive = false;
+      } else if (sp.type === 'megalaser'){
+        player.specialPhase = 'megalaserActive';
+        megalaser.setsFired = 0;
+        megalaser.firstLockedTarget = null;
+        megalaser.nextSetFramesLeft = 0;
+        player.specialActive = false;
+      } else if (sp.type === 'supersensor'){
+        player.specialPhase = 'supersensorActive';
+        player.specialPhaseFramesLeft = sp.durationFrames;
+        player.specialActive = false;
+        sensorMarker.visible = dummy.hp > 0;
+      } else {
+        player.specialPhase = 'holding';
+      }
+    }
+  } else if (player.specialPhase === 'holding'){
+    if (mouseDown){
+      player.specialPhase = 'throwing';
+      player.specialThrowFramesElapsed = 0;
+      player.specialThrowPending = false;
+    }
+  } else if (player.specialPhase === 'throwing'){
+    player.specialThrowFramesElapsed += framesDelta;
+    if (player.specialThrowPending && player.specialThrowFramesElapsed >= sp.preThrowFrames){
+      player.specialThrowPending = false;
+      launchGuide();
+    }
+    if (!mouseDown && !player.specialThrowPending){
+      releaseGuideThrow();
+    }
+  } else if (player.specialPhase === 'guideFlying'){
+    updateGuideProjectile(dt);
+  } else if (player.specialPhase === 'tornado'){
+    player.specialPhaseFramesLeft -= framesDelta;
+    tornado.framesElapsed += framesDelta;
+    tornadoMesh.rotation.y += dt * 6;
+    const rM = linesToMeters(currentTornadoPaintRadiusLines());
+    tornadoMesh.scale.set(rM, currentTornadoRadiusFraction(), rM);
+    paintTornadoTick();
+    applyTornadoDamage(framesDelta);
+    if (player.specialPhaseFramesLeft <= 0){
+      player.specialPhase = 'dissolving';
+      player.specialPhaseFramesLeft = sp.dissolveFrames;
+      tornado.dissolveFramesElapsed = 0;
+    }
+  } else if (player.specialPhase === 'dissolving'){
+    player.specialPhaseFramesLeft -= framesDelta;
+    tornado.dissolveFramesElapsed += framesDelta;
+    const collapse = Math.max(0, 1 - tornado.dissolveFramesElapsed / sp.dissolveFrames);
+    tornadoMesh.rotation.y += dt * 10;
+    const rM = linesToMeters(currentTornadoPaintRadiusLines()) * collapse;
+    tornadoMesh.scale.set(rM, collapse, rM);
+    if (player.specialPhaseFramesLeft <= 0){
+      tornado.active = false;
+      tornadoMesh.visible = false;
+      player.specialPhase = 'none';
+    }
+  } else if (player.specialPhase === 'supershotActive'){
+    player.specialPhaseFramesLeft -= framesDelta;
+    if (player.supershotPreShotFramesLeft > 0){
+      player.supershotPreShotFramesLeft = Math.max(0, player.supershotPreShotFramesLeft - framesDelta);
+    }
+    const nowSS = performance.now();
+    const canFireSuperShot = form === 'human' && player.supershotPreShotFramesLeft <= 0 && mouseDown &&
+      (nowSS - lastSuperShotAt) >= sp.fireIntervalSec * 1000;
+    if (canFireSuperShot) fireSuperShot();
+    if (player.specialPhaseFramesLeft <= 0){
+      player.specialPhase = 'supershotEnding';
+      player.specialPhaseFramesLeft = sp.postShotFrames;
+      player.specialActive = true;
+    }
+  } else if (player.specialPhase === 'supershotEnding'){
+    player.specialPhaseFramesLeft -= framesDelta;
+    if (player.specialPhaseFramesLeft <= 0){
+      player.specialPhase = 'none';
+      player.specialActive = false;
+    }
+  } else if (player.specialPhase === 'daiou'){
+    player.specialPhaseFramesLeft -= framesDelta;
+    updateDaiouSpinAttack(framesDelta);
+    handleDaiouBombCollisions();
+    if (player.specialPhaseFramesLeft <= 0){
+      player.specialPhase = 'detransforming';
+      player.specialPhaseFramesLeft = sp.detransformDelayFrames;
+      player.specialActive = true;
+      player.daiouSpinActive = false;
+      daiouAttackRing.visible = false;
+    }
+  } else if (player.specialPhase === 'detransforming'){
+    player.specialPhaseFramesLeft -= framesDelta;
+    if (player.specialPhaseFramesLeft <= 0){
+      player.specialPhase = 'none';
+      player.specialActive = false;
+    }
+  } else if (player.specialPhase === 'bombrushActive'){
+    player.specialPhaseFramesLeft -= framesDelta;
+    if (player.specialPhaseFramesLeft <= 0){
+      player.specialPhase = 'none';
+    }
+  } else if (player.specialPhase === 'megalaserActive'){
+    if (megalaser.setsFired < MEGALASER_SPECIAL.setCount){
+      megalaser.nextSetFramesLeft -= framesDelta;
+      if (megalaser.nextSetFramesLeft <= 0){
+        fireMegalaserSet();
+        megalaser.setsFired++;
+        megalaser.nextSetFramesLeft = MEGALASER_SPECIAL.setIntervalFrames;
+      }
+    } else {
+      player.specialPhase = 'megalaserPostDelay';
+      player.specialPhaseFramesLeft = MEGALASER_SPECIAL.postDelayFrames;
+      player.specialActive = true;
+    }
+  } else if (player.specialPhase === 'megalaserPostDelay'){
+    player.specialPhaseFramesLeft -= framesDelta;
+    if (player.specialPhaseFramesLeft <= 0){
+      player.specialPhase = 'none';
+      player.specialActive = false;
+    }
+  } else if (player.specialPhase === 'supersensorActive'){
+    sensorMarker.visible = dummy.hp > 0;
+    player.specialPhaseFramesLeft -= framesDelta;
+    if (player.specialPhaseFramesLeft <= 0){
+      player.specialPhase = 'none';
+      sensorMarker.visible = false;
+    }
+  }
+
+  if (player.sensorJumpFramesLeft > 0){
+    player.sensorJumpFramesLeft = Math.max(0, player.sensorJumpFramesLeft - framesDelta);
+  }
+
+  if (player.specialActive){
+    let locked;
+    if (sp.type === 'tornado'){
+      const inPreThrowLock = player.specialPhase === 'activating' || player.specialPhase === 'holding' || player.specialPhase === 'throwing';
+      locked = inPreThrowLock || player.specialPostThrowFramesLeft > 0;
+    } else if (sp.type === 'daioika'){
+      locked = player.specialPhase === 'activating' || player.specialPhase === 'detransforming';
+    } else if (sp.type === 'bombrush'){
+      locked = player.specialPhase === 'activating';
+    } else if (sp.type === 'megalaser'){
+      locked = player.specialPhase === 'activating' || player.specialPhase === 'megalaserPostDelay';
+    } else if (sp.type === 'supersensor'){
+      locked = player.specialPhase === 'activating';
+    } else {
+      locked = player.specialPhase === 'activating' || player.specialPhase === 'supershotEnding';
+    }
+    if (!locked) player.specialActive = false;
+  }
+
+  updateSuperShotProjectiles(dt);
+  updateMegaLasers(dt);
+  updateSensorActivationRings();
+
+  if (guideMesh) guideMesh.visible = player.specialPhase === 'guideFlying';
+  tornadoWarnRing.visible = false; // トルネードは投擲後すぐ竜巻化するため、着弾猶予の予告リングはこのプロトタイプでは省略
+}
+
+// スペシャルゲージのHUD表示(2D版のcomputeSpecialGaugeDisplay()を移植・簡略化)。
+function computeSpecialGaugeDisplay(){
+  const sp = currentSpecial();
+
+  if (sp.type === 'megalaser'){
+    if (player.spLockedFramesLeft > 0){
+      return { frac: player.spLockedFramesLeft / MEGALASER_GAUGE_DRAIN_TOTAL_FRAMES, mode: 'draining' };
+    }
+    return { frac: Math.min(1, player.spGauge / player.spGaugeMax), mode: 'charging' };
+  }
+  if (SPECIAL_TYPES_WITHOUT_GAUGE_LOCK.includes(sp.type)){
+    return { frac: Math.min(1, player.spGauge / player.spGaugeMax), mode: 'charging' };
+  }
+  if (player.specialPhase === 'none'){
+    return { frac: Math.min(1, player.spGauge / player.spGaugeMax), mode: 'charging' };
+  }
+
+  if (sp.type === 'supershot'){
+    const combinedMaxFrames = sp.activateDelayFrames + sp.durationFrames;
+    if (player.specialPhase === 'activating'){
+      return { frac: (Math.max(0, player.specialPhaseFramesLeft) + sp.durationFrames) / combinedMaxFrames, mode: 'draining' };
+    }
+    if (player.specialPhase === 'supershotActive'){
+      return { frac: Math.max(0, player.specialPhaseFramesLeft) / combinedMaxFrames, mode: 'draining' };
+    }
+    return { frac: 0, mode: 'blocked' };
+  }
+  if (sp.type === 'daioika'){
+    const combinedMaxFrames = sp.activateDelayFrames + sp.durationFrames;
+    if (player.specialPhase === 'activating'){
+      return { frac: (Math.max(0, player.specialPhaseFramesLeft) + sp.durationFrames) / combinedMaxFrames, mode: 'draining' };
+    }
+    if (player.specialPhase === 'daiou'){
+      return { frac: Math.max(0, player.specialPhaseFramesLeft) / combinedMaxFrames, mode: 'draining' };
+    }
+    return { frac: 0, mode: 'blocked' };
+  }
+  if (sp.type === 'bombrush'){
+    const combinedMaxFrames = sp.activateDelayFrames + sp.durationFrames;
+    if (player.specialPhase === 'activating'){
+      return { frac: (Math.max(0, player.specialPhaseFramesLeft) + sp.durationFrames) / combinedMaxFrames, mode: 'draining' };
+    }
+    return { frac: Math.max(0, player.specialPhaseFramesLeft) / combinedMaxFrames, mode: 'draining' };
+  }
+
+  if (player.specialPhase === 'activating' || player.specialPhase === 'holding' || player.specialPhase === 'throwing'){
+    return { frac: Math.max(0, player.specialUsableFramesLeft) / TORNADO_SPECIAL.maxHoldFrames, mode: 'draining' };
+  }
+  return { frac: 0, mode: 'blocked' };
+}
+
+// ==========================================================================
+// HUDのスペシャル状況テキスト更新(2D版のHUD文言を簡略移植)。
+// ==========================================================================
+const spGaugeOuterEl = document.getElementById('sp-gauge-outer');
+const spGaugeInnerEl = document.getElementById('sp-gauge-inner');
+const specialGaugeStatusEl = document.getElementById('special-gauge-status');
+const subStatusEl = document.getElementById('sub-status');
+
+function updateSpecialHud(){
+  const sp = currentSpecial();
+  const gaugeDisplay = computeSpecialGaugeDisplay();
+  spGaugeInnerEl.style.width = (gaugeDisplay.frac * 100) + '%';
+  spGaugeInnerEl.classList.toggle('depleting', gaugeDisplay.mode === 'draining');
+  spGaugeInnerEl.classList.toggle('blocked', gaugeDisplay.mode === 'blocked');
+  const spReady = player.spGauge >= player.spGaugeMax && player.specialPhase === 'none';
+  spGaugeOuterEl.classList.toggle('ready', spReady);
+
+  if (gaugeDisplay.mode === 'charging'){
+    specialGaugeStatusEl.textContent = spReady
+      ? `${specialDisplayName(sp)} 発動可能(R)`
+      : `${specialDisplayName(sp)} 充填中 ${Math.floor(gaugeDisplay.frac * 100)}%`;
+  } else if (gaugeDisplay.mode === 'draining'){
+    specialGaugeStatusEl.textContent = `${specialDisplayName(sp)}発動中(まだ溜まりません)`;
+  } else {
+    specialGaugeStatusEl.textContent = `${specialDisplayName(sp)}発動中(再充填待ち)`;
+  }
+
+  const bombRushActiveNow = isBombRushActive();
+  const effectiveSubInkCost = bombRushActiveNow ? 0 : QUICKBOMB.inkCostPercent;
+  const daiouActiveNow = sp.type === 'daioika' && player.specialPhase !== 'none';
+  const now = performance.now();
+  if (daiouActiveNow){
+    subStatusEl.textContent = `サブ: ${QUICKBOMB.name} 使用不可(ダイオウイカ変身中)`;
+  } else if (throwAimHeld || pendingBombThrowAt !== null){
+    subStatusEl.textContent = `サブ: ${QUICKBOMB.name} 構え中${bombRushActiveNow ? '・インク消費0' : ''}`;
+  } else if (now - lastBombThrowAt < framesToSeconds(QUICKBOMB.minThrowIntervalFrames) * 1000){
+    subStatusEl.textContent = `サブ: ${QUICKBOMB.name} 連続使用まで待機中`;
+  } else if (now < bombPostThrowLockUntil){
+    subStatusEl.textContent = `サブ: ${QUICKBOMB.name} 後隙(イカ化不可)`;
+  } else if (player.ink < effectiveSubInkCost){
+    subStatusEl.textContent = `サブ: ${QUICKBOMB.name} インク不足`;
+  } else if (bombRushActiveNow){
+    subStatusEl.textContent = `サブ: ${QUICKBOMB.name} 使い放題(${specialDisplayName(sp)}中・インク消費0)`;
+  } else {
+    subStatusEl.textContent = `サブ: ${QUICKBOMB.name} 使用可能(E)`;
+  }
+
+  // スペシャルフェーズの補足テキストをスコープノート下のトースト経由ではなく
+  // fov-state行の隣に出す(既存のspecial-toast要素を状態表示に流用)。
+  let phaseText = '';
+  if (player.specialPhase === 'holding'){
+    phaseText = `トルネード: ガイド構え中(残り${(Math.max(0, player.specialUsableFramesLeft) / FPS).toFixed(1)}秒)`;
+  } else if (player.specialPhase === 'throwing'){
+    phaseText = `トルネード: 投擲構え中`;
+  } else if (player.specialPhase === 'guideFlying'){
+    phaseText = `トルネード: ガイド飛行中`;
+  } else if (player.specialPhase === 'tornado'){
+    phaseText = `トルネード展開中(残り${(Math.max(0, player.specialPhaseFramesLeft) / FPS).toFixed(1)}秒)`;
+  } else if (player.specialPhase === 'supershotActive'){
+    phaseText = player.supershotPreShotFramesLeft > 0 ? 'スーパーショット: 構え中' : 'スーパーショット: 連射可能';
+  } else if (player.specialPhase === 'daiou'){
+    phaseText = 'ダイオウイカ: 変身中・移動可(スペースで回転攻撃)';
+  } else if (player.specialPhase === 'bombrushActive'){
+    phaseText = `${specialDisplayName(sp)}: サブ使い放題(残り${(Math.max(0, player.specialPhaseFramesLeft) / FPS).toFixed(1)}秒)`;
+  } else if (player.specialPhase === 'megalaserActive'){
+    phaseText = `${specialDisplayName(sp)}: ${megalaser.setsFired}/${MEGALASER_SPECIAL.setCount}セット照射済み`;
+  } else if (player.specialPhase === 'supersensorActive'){
+    phaseText = `${specialDisplayName(sp)}: ${dummy.hp > 0 ? 'ダミーの位置を索敵中' : '対象は倒れている'}`;
+  }
+  if (phaseText){
+    const toastEl = document.getElementById('special-toast');
+    toastEl.textContent = phaseText;
+    toastEl.style.opacity = '1';
+  } else if (player.specialPhase === 'none' && specialStubTimeoutId === null){
+    document.getElementById('special-toast').style.opacity = '0';
+  }
+}
+
+// センサーマーカーをダミー頭上に追従させ、微かに揺れさせる。
+function updateSensorMarkerPosition(){
+  if (!sensorMarker.visible) return;
+  const t = performance.now();
+  sensorMarker.position.set(
+    dummy.position.x,
+    HUMAN_HITBOX.totalHeight + 0.5 + Math.sin(t / 300) * 0.08,
+    dummy.position.z
+  );
 }
 
 // ==========================================================================
@@ -2641,18 +3189,16 @@ function loop(now){
   const dt = Math.min((now - lastTime) / 1000, 0.05);
   lastTime = now;
 
-  // オーバーレイが開いている間は「時が止まる」— 2Dプロトタイプと同じ仕様。
-  // render()自体(この関数の末尾のrenderer.render呼び出し)は引き続き
-  // 呼ばれるので、暗幕の下に直前のフレームが見え続ける。
   if (activeOverlay === null){
-    const firing = mouseDown && pointerLocked && form === 'human';
-    // メイン射撃中(firing)、またはサブ・スペシャルの構えモーション中に相当する
-    // Eキー長押し(throwAimHeld)のいずれかがtrueなら加速度が2倍になる状態。
-    const actionState = firing || throwAimHeld;
+    recordDummyPositionHistory();
+    const daiouActiveNow = currentSpecial().type === 'daioika' && player.specialPhase !== 'none';
+    const firing = mouseDown && pointerLocked && form === 'human' && !daiouActiveNow;
+    const actionState = firing || throwAimHeld ||
+      player.specialPhase === 'holding' || player.specialPhase === 'throwing' ||
+      (currentSpecial().type === 'supershot' && player.specialPhase !== 'none');
     updateSquidFormLock();
     updateMovement(dt, firing, actionState);
     updateWeapon(dt, firing);
-    // 前隙待ちで予約されたクイックボムの投擲を、時刻が来たら実行する。
     if (pendingBombThrowAt !== null && now >= pendingBombThrowAt){
       throwBomb();
       pendingBombThrowAt = null;
@@ -2661,26 +3207,30 @@ function loop(now){
     updateExplosionFx(dt);
     updateFallingInkDrops(dt);
     updateInk(dt, firing);
+    updateSpecial(dt);
     updateCamera(dt);
     updatePlayerVisual();
+    updateSensorMarkerPosition();
     updateReticle();
     updateTargetReticle();
     updateThrowPreview();
+    updateDamagePopups();
   }
 
-  // 投擲構え中(throwAimHeld)は追尾レティクルを消し、弾道プレビューに切り替える。
   document.getElementById('reticle').style.display = (throwAimHeld && activeOverlay === null) ? 'none' : 'block';
+  const daiouActiveForHud = currentSpecial().type === 'daioika' && player.specialPhase !== 'none';
   document.getElementById('fov-state').textContent =
-    `FOV: ${camera.fov.toFixed(1)}°(${throwAimHeld ? '投擲構え' : (form === 'squid' ? 'イカ状態' : 'ヒト状態')}) / grounded:${grounded} / y:${playerGroup.position.y.toFixed(2)}`;
+    `FOV: ${camera.fov.toFixed(1)}°(${throwAimHeld ? '投擲構え' : (daiouActiveForHud ? 'ダイオウイカ' : (form === 'squid' ? 'イカ状態' : 'ヒト状態'))}) / grounded:${grounded} / y:${playerGroup.position.y.toFixed(2)}`;
 
-  // 塗りキャンバスの内容をGPUテクスチャへ反映し、塗りポイントのHUD表示を更新する。
   paintTexture.needsUpdate = true;
   document.getElementById('paint-points-value').textContent = Math.round(totalPaintPoints) + 'pt';
+  updateSpecialHud();
 
   renderer.render(scene, camera);
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
+
 </script>
 </body>
 </html>
