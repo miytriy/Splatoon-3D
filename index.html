@@ -894,6 +894,18 @@ function isOnOwnInk(){
   return sampleInkAt(playerGroup.position.x, playerGroup.position.z);
 }
 
+// 自陣インク上か否かの判定は「地面に接地している間だけ」行う(要望通り)。
+// 空中にいる間は、最後に接地していた時点の判定を保持し続ける — ジャンプで
+// インクの無い床の上を通過しても、その間だけ地上インク判定がちらついて
+// 減速する、といったことが起きないようにするため。isOnOwnInk()自体は
+// (見た目の潜伏判定などで)常に「今この瞬間」の値が必要な箇所もあるので
+// そのまま残し、移動速度・インク回復レートはこちらのキャッシュ経由の値を使う。
+let cachedGroundedOnOwnInk = false;
+function getGroundedOnOwnInk(){
+  if (grounded) cachedGroundedOnOwnInk = isOnOwnInk();
+  return cachedGroundedOnOwnInk;
+}
+
 // --------------------------------------------------------------------------
 // Player character
 // --------------------------------------------------------------------------
@@ -1967,7 +1979,7 @@ function getTargetSpeedMPerS(firing){
   }
 
   if (form === 'squid'){
-    return isOnOwnInk() ? player.squidSpeedOnInk : player.squidSpeedOffInk;
+    return getGroundedOnOwnInk() ? player.squidSpeedOnInk : player.squidSpeedOffInk;
   }
   return firing ? player.shootSpeed : player.humanSpeed;
 }
@@ -2282,7 +2294,7 @@ function updateInk(dt, firing){
     const bombLockoutMs = framesToSeconds(QUICKBOMB.inkRegenLockoutFrames) * 1000;
     const lockedUntil = Math.max(lastShotAt + mainLockoutMs, lastBombThrowAt + bombLockoutMs);
     if (now >= lockedUntil){
-      const rapid = form === 'squid' && isOnOwnInk();
+      const rapid = form === 'squid' && getGroundedOnOwnInk();
       const rate = rapid ? player.swimRegenRate : player.regenRate;
       player.ink = Math.min(player.maxInk, player.ink + rate * dt);
     }
