@@ -2344,7 +2344,10 @@ function resetSpecialState(keepGauge){
   tornado.active = false;
   tornado.paintedPoints = 0;
   if (tornadoMesh){ tornadoMesh.visible = false; }
+  if (tornadoRing){ tornadoRing.visible = false; }
   if (tornadoWarnRing){ tornadoWarnRing.visible = false; }
+  if (typeof updateTornadoSparks === 'function') updateTornadoSparks(0, 0, false);
+
   superShotProjectiles.forEach(p => scene.remove(p.mesh));
   superShotProjectiles.length = 0;
   megalaser.setsFired = 0;
@@ -2431,16 +2434,106 @@ const guideGeo = new THREE.SphereGeometry(0.12, 10, 8);
 const guideMat = new THREE.MeshBasicMaterial({ color: TEAM_COLOR });
 
 const tornado = { active: false, x: 0, z: 0, framesElapsed: 0, paintedPoints: 0, dissolveFramesElapsed: 0 };
+
+// ==========================================================================
+// トルネードの見た目 — 参照動画(アメフラシ発動時の縦に高く伸びる、リボン状
+// にねじれながら立ち上る黄色い竜巻)を再現する。地面に薄く広がる円盤では
+// なく、細く高く伸びる螺旋のリボン(複数本)+足元から飛び散るインクの
+// 破片、という構成にする。
+//   - TornadoHelixCurve: 単位円柱内(半径0〜1、高さ0〜1)を軸周りに何重にも
+//     巻きつきながら上るヘリカル曲線。上に行くほど半径を絞ることで、
+//     まっすぐな筒ではなく先細りの「竜巻」らしいシルエットにする。
+//   - リボン本体は3本、位相をずらして配置し、それぞれ独立に高速回転させる
+//     ことで密な渦を巻いているように見せる。
+//   - 実際の高さ・太さは tornadoMesh.scale で毎フレーム設定する(下の
+//     updateSpecial 内、'tornado'/'dissolving' フェーズの処理を参照)。
+//     unit形状(高さ1・半径1)を非一様スケールすることで、太さは塗り半径、
+//     高さは固定の見た目上の背丈(TORNADO_VISUAL_HEIGHT_M)に追従させる。
+// ==========================================================================
+class TornadoHelixCurve extends THREE.Curve {
+  constructor(turns, radiusBottom, radiusTop, phase){
+    super();
+    this.turns = turns;
+    this.radiusBottom = radiusBottom;
+    this.radiusTop = radiusTop;
+    this.phase = phase || 0;
+  }
+  getPoint(t, target){
+    const angle = this.phase + t * Math.PI * 2 * this.turns;
+    const r = this.radiusBottom + (this.radiusTop - this.radiusBottom) * t;
+    const point = new THREE.Vector3(Math.cos(angle) * r, t, Math.sin(angle) * r);
+    return target ? target.copy(point) : point;
+  }
+}
+
+const TORNADO_VISUAL_HEIGHT_M = 11; // 竜巻の見た目上の背丈(参照動画のように画面の上まで伸びる高さ)
+const TORNADO_RIBBON_COUNT = 3;
 const tornadoMesh = new THREE.Group();
-const tornadoBodyMat = new THREE.MeshBasicMaterial({ color: TEAM_COLOR, transparent: true, opacity: 0.65 });
-const tornadoBody = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 2.2, 20, 1, true), tornadoBodyMat);
-tornadoMesh.add(tornadoBody);
+const tornadoRibbonMat = new THREE.MeshBasicMaterial({
+  color: 0xffe14d, transparent: true, opacity: 0.88, side: THREE.DoubleSide,
+  blending: THREE.AdditiveBlending, depthWrite: false,
+});
+const tornadoRibbons = [];
+for (let i = 0; i < TORNADO_RIBBON_COUNT; i++){
+  const phase = (i / TORNADO_RIBBON_COUNT) * Math.PI * 2;
+  const curve = new TornadoHelixCurve(4.5, 1.0, 0.12, phase);
+  const geo = new THREE.TubeGeometry(curve, 90, 0.055, 3, false);
+  const mesh = new THREE.Mesh(geo, tornadoRibbonMat);
+  tornadoMesh.add(mesh);
+  tornadoRibbons.push(mesh);
+}
+// 足元の明るいコア(下部だけ強く光らせて、地面から噴き出している感を出す)
+const tornadoCoreMat = new THREE.MeshBasicMaterial({ color: 0xfff3c4, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false });
+const tornadoCore = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.55, 1, 16, 1, true), tornadoCoreMat);
+tornadoCore.position.y = 0.5;
+tornadoMesh.add(tornadoCore);
+
 const tornadoRing = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.02, 24), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, side: THREE.DoubleSide }));
 tornadoRing.rotation.x = -Math.PI / 2;
 tornadoRing.position.y = 0.02;
-tornadoMesh.add(tornadoRing);
+scene.add(tornadoRing); // リング(地面の光の輪)は高さスケールの影響を受けないよう、tornadoMeshの外に独立して置く
+
 tornadoMesh.visible = false;
 scene.add(tornadoMesh);
+
+// 足元から飛び散るインクの破片(参照動画の、竜巻の根本で跳ねる細かい
+// 黄色い粒を再現する)。個数分のメッシュを使い回し、毎フレーム軌道だけを
+// 計算し直す(生成/破棄コストを避けるため)。
+const TORNADO_SPARK_COUNT = 14;
+const tornadoSparks = [];
+const tornadoSparkGeo = new THREE.SphereGeometry(0.05, 6, 5);
+const tornadoSparkMat = new THREE.MeshBasicMaterial({ color: 0xffe14d, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false });
+for (let i = 0; i < TORNADO_SPARK_COUNT; i++){
+  const mesh = new THREE.Mesh(tornadoSparkGeo, tornadoSparkMat);
+  mesh.visible = false;
+  scene.add(mesh);
+  tornadoSparks.push({
+    mesh,
+    angle: (i / TORNADO_SPARK_COUNT) * Math.PI * 2,
+    angularSpeed: 6 + Math.random() * 4,
+    riseSpeed: 1.4 + Math.random() * 1.2,
+    radiusFrac: Math.random(),
+    baseScale: 0.6 + Math.random() * 0.8,
+  });
+}
+function updateTornadoSparks(dt, baseRadiusM, active){
+  for (const s of tornadoSparks){
+    s.mesh.visible = active;
+    if (!active) continue;
+    s.angle += s.angularSpeed * dt;
+    s.radiusFrac += s.riseSpeed * dt;
+    if (s.radiusFrac >= 1){
+      s.radiusFrac -= 1;
+      s.angle = Math.random() * Math.PI * 2;
+    }
+    const r = baseRadiusM * (0.5 + 0.7 * s.radiusFrac);
+    const h = 0.15 + s.radiusFrac * 1.6;
+    s.mesh.position.set(tornado.x + Math.cos(s.angle) * r, h, tornado.z + Math.sin(s.angle) * r);
+    const fade = Math.sin(Math.min(1, s.radiusFrac) * Math.PI);
+    const scale = s.baseScale * (0.5 + 0.5 * fade);
+    s.mesh.scale.setScalar(scale);
+  }
+}
 
 const tornadoWarnRing = new THREE.Mesh(
   new THREE.RingGeometry(0.85, 1.0, 24),
@@ -2515,6 +2608,8 @@ function landTornadoAt(x, z){
   player.spLockedFramesLeft = Math.max(player.spLockedFramesLeft, sp.burstVisualFrames);
   tornadoMesh.visible = true;
   tornadoMesh.position.set(x, 0, z);
+  tornadoRing.visible = true;
+  tornadoRing.position.set(x, 0.02, z);
   paintTornadoTick();
 }
 
@@ -2928,9 +3023,17 @@ function updateSpecial(dt){
   } else if (player.specialPhase === 'tornado'){
     player.specialPhaseFramesLeft -= framesDelta;
     tornado.framesElapsed += framesDelta;
-    tornadoMesh.rotation.y += dt * 6;
+    // 各リボンごとに少しだけ違う速さで回すことで、単調に見えない密な渦を作る
+    // (参照動画のように高速でねじれながら立ち上る見た目を狙う)。
+    for (let i = 0; i < tornadoRibbons.length; i++){
+      tornadoRibbons[i].rotation.y += dt * (9 + i * 2.4);
+    }
+    tornadoCore.rotation.y -= dt * 5;
+    const growth = currentTornadoRadiusFraction();
     const rM = linesToMeters(currentTornadoPaintRadiusLines());
-    tornadoMesh.scale.set(rM, currentTornadoRadiusFraction(), rM);
+    tornadoMesh.scale.set(rM * 0.85, TORNADO_VISUAL_HEIGHT_M * growth, rM * 0.85);
+    tornadoRing.scale.setScalar(rM);
+    updateTornadoSparks(dt, rM, true);
     paintTornadoTick();
     applyTornadoDamage(framesDelta);
     if (player.specialPhaseFramesLeft <= 0){
@@ -2942,12 +3045,19 @@ function updateSpecial(dt){
     player.specialPhaseFramesLeft -= framesDelta;
     tornado.dissolveFramesElapsed += framesDelta;
     const collapse = Math.max(0, 1 - tornado.dissolveFramesElapsed / sp.dissolveFrames);
-    tornadoMesh.rotation.y += dt * 10;
-    const rM = linesToMeters(currentTornadoPaintRadiusLines()) * collapse;
-    tornadoMesh.scale.set(rM, collapse, rM);
+    for (let i = 0; i < tornadoRibbons.length; i++){
+      tornadoRibbons[i].rotation.y += dt * (16 + i * 3); // 収束中は渦の勢いを増して締まっていくように見せる
+    }
+    tornadoCore.rotation.y -= dt * 8;
+    const rM = linesToMeters(currentTornadoPaintRadiusLines()) * 0.85 * collapse;
+    tornadoMesh.scale.set(rM, TORNADO_VISUAL_HEIGHT_M * collapse, rM);
+    tornadoRing.scale.setScalar(linesToMeters(currentTornadoPaintRadiusLines()) * collapse);
+    updateTornadoSparks(dt, linesToMeters(currentTornadoPaintRadiusLines()) * collapse, collapse > 0.02);
     if (player.specialPhaseFramesLeft <= 0){
       tornado.active = false;
       tornadoMesh.visible = false;
+      tornadoRing.visible = false;
+      updateTornadoSparks(dt, 0, false);
       player.specialPhase = 'none';
     }
   } else if (player.specialPhase === 'supershotActive'){
