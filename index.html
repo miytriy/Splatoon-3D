@@ -2438,31 +2438,35 @@ const guideMat = new THREE.MeshBasicMaterial({ color: TEAM_COLOR });
 const tornado = { active: false, x: 0, z: 0, framesElapsed: 0, paintedPoints: 0, dissolveFramesElapsed: 0 };
 
 // ==========================================================================
-// トルネードの見た目 — 参照動画をよく見ると、竜巻は一枚のメッシュではなく
-// 「無数の小さなインクの粒それぞれが螺旋を描きながら舞い上がる」ことで
-// 竜巻の形になっている。そのため、面(ソリッドな柱)ではなく、多数の小さな
-// インク粒(InstancedMesh)を、それぞれ独立した角度・上昇速度で回転上昇
-// させる方式に切り替える。
-//   - 各粒は「どの巻き(strand)に属するか」「現在の角度・高さ・上昇速度」を
-//     個別に持ち、毎フレーム角度を進め、高さを上げていく。
-//   - 高さが可視域(TORNADO_PARTICLE_LOOP_HEIGHT_M、発動直後の急拡大込みで
-//     動的に変わる)を超えたら根元(高さ0)へ戻す — 個々の粒は有限のループを
-//     描いているが、大量の粒が位相をずらして常時循環しているため、
-//     全体としては「Y軸方向に果てしなく伸び続けている」ように見える。
-//   - 半径は根元が太く、上に行くほど窄まるテーパーを掛け、strandごとに
-//     内側/外側の層を作ることで密度のある渦に見せる。
+// トルネードの見た目 — 参照動画は、無数のインクの粒が「規則正しく並んだ
+// 螺旋(ドリルのような形)」に沿って、形を保ったまま回転しながら上昇して
+// いく効果。前回の実装は粒ごとに角度・半径・傾きをランダムに揺らして
+// いたため、うねうねと不規則に蠢いて見えてしまっていた(要修正点)。
+// 今回は逆に「ランダム要素をほぼ排除」し、各粒を固定本数の螺旋(strand)上に
+// 等間隔で並べ、全粒共通の1つの時間変数(flowT)だけで一斉に回転+上昇させる
+// ことで、剛体のドリルが回っているような、規則的でクリーンな渦にする。
+//   - strand数: TORNADO_STRANDS本の螺旋。各strandにPARTICLES_PER_STRAND個の
+//     粒を、その螺旋に沿って等間隔(indexTフラクション)に配置する。
+//   - flowT(0〜1)を時間経過で単調増加させ、各粒の「螺旋に沿った位置」に
+//     加算する。増加分がheightFrac側にもそのまま乗る(=上るほど角度も
+//     進む、という一本の螺旋の形を保ったまま、模様全体が根元から湧き出て
+//     頂上へ流れていくように見える)。1周したら0に戻し、ループさせる。
+//   - 半径のテーパー・高さのループはなめらかな決定論的カーブのみを使い、
+//     個々の粒にランダムな揺れは持たせない。
 // ==========================================================================
 const tornadoMesh = new THREE.Group(); // 現状は当たり判定などの位置基準としてのみ残す(可視要素は持たない)
 
-const TORNADO_PARTICLE_COUNT = 360;
-const TORNADO_PARTICLE_STRANDS = 7;
-const TORNADO_PARTICLE_LOOP_HEIGHT_M = 42; // 個々の粒が上りきってループする高さ(この高さ自体はフォグで見えなくなる距離感)
+const TORNADO_STRANDS = 3;
+const TORNADO_PARTICLES_PER_STRAND = 22;
+const TORNADO_PARTICLE_COUNT = TORNADO_STRANDS * TORNADO_PARTICLES_PER_STRAND;
+const TORNADO_PARTICLE_LOOP_HEIGHT_M = 30; // 粒が上りきってループする高さ
+const TORNADO_PARTICLE_TURNS = 4.5; // 螺旋が根元から頂上までに何周するか(固定・規則的)
+const TORNADO_FLOW_SPEED = 0.55; // flowTの進む速さ(1.0で約1.8秒に1周分流れる)
 
-const tornadoParticleGeo = new THREE.SphereGeometry(0.15, 6, 5);
-tornadoParticleGeo.scale(1, 1.7, 1); // 縦に潰して雫っぽい形にする
+const tornadoParticleGeo = new THREE.SphereGeometry(0.16, 8, 7);
 const tornadoParticleMat = new THREE.MeshStandardMaterial({
-  color: 0xffce3d, roughness: 0.4, metalness: 0.0,
-  emissive: 0xff8a1f, emissiveIntensity: 0.22,
+  color: TEAM_COLOR, roughness: 0.45, metalness: 0.0,
+  emissive: 0x992a00, emissiveIntensity: 0.12,
 });
 const tornadoParticles = new THREE.InstancedMesh(tornadoParticleGeo, tornadoParticleMat, TORNADO_PARTICLE_COUNT);
 tornadoParticles.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -2470,42 +2474,37 @@ tornadoParticles.visible = false;
 scene.add(tornadoParticles);
 const tornadoParticleDummy = new THREE.Object3D();
 
-const tornadoParticleState = [];
-for (let i = 0; i < TORNADO_PARTICLE_COUNT; i++){
-  const strand = i % TORNADO_PARTICLE_STRANDS;
-  tornadoParticleState.push({
-    phase: Math.random() * Math.PI * 2,
-    angularSpeed: 6.5 + Math.random() * 4.5,
-    heightM: Math.random() * TORNADO_PARTICLE_LOOP_HEIGHT_M,
-    riseSpeedMps: 4.5 + Math.random() * 3.0,
-    shellMul: 0.5 + 0.55 * (strand / (TORNADO_PARTICLE_STRANDS - 1)),
-    wobblePhase: Math.random() * Math.PI * 2,
-    scaleJitter: 0.65 + Math.random() * 0.7,
-  });
-}
+let tornadoFlowT = 0; // 0〜1で単調増加し続ける、全粒共通の「流れ」の進み具合
 
-// 竜巻本体を「無数のインク粒」で描く。baseRadiusM=見た目上の根元半径、
-// loopHeightM=この瞬間の可視ループ高さ(発動直後は0から急拡大させる)。
+// 竜巻本体を「規則正しく並んだインクの粒」で描く。baseRadiusM=見た目上の
+// 根元半径、loopHeightM=この瞬間の可視ループ高さ(発動直後は0から急拡大)。
 function updateTornadoParticles(dt, baseRadiusM, loopHeightM, active){
   tornadoParticles.visible = active;
   if (!active) return;
-  for (let i = 0; i < TORNADO_PARTICLE_COUNT; i++){
-    const s = tornadoParticleState[i];
-    s.phase += s.angularSpeed * dt;
-    s.heightM += s.riseSpeedMps * dt;
-    if (s.heightM > loopHeightM) s.heightM -= loopHeightM;
-    const hf = loopHeightM > 0 ? Math.min(1, s.heightM / loopHeightM) : 0;
-    const taper = 1 - 0.55 * hf;
-    const wob = 0.14 * Math.sin(s.wobblePhase + s.phase * 2.4);
-    const r = Math.max(0.04, baseRadiusM * s.shellMul * taper + baseRadiusM * wob);
-    const x = tornado.x + Math.cos(s.phase) * r;
-    const z = tornado.z + Math.sin(s.phase) * r;
-    tornadoParticleDummy.position.set(x, s.heightM, z);
-    tornadoParticleDummy.rotation.set(0.3 * Math.sin(s.wobblePhase), s.phase + Math.PI / 2, 0);
-    const sc = s.scaleJitter * (0.55 + 0.55 * (1 - hf)) * Math.max(0.15, baseRadiusM / 3.2);
-    tornadoParticleDummy.scale.set(sc, sc, sc);
-    tornadoParticleDummy.updateMatrix();
-    tornadoParticles.setMatrixAt(i, tornadoParticleDummy.matrix);
+  tornadoFlowT = (tornadoFlowT + TORNADO_FLOW_SPEED * dt) % 1;
+
+  let idx = 0;
+  for (let s = 0; s < TORNADO_STRANDS; s++){
+    const strandPhase = (s / TORNADO_STRANDS) * Math.PI * 2;
+    for (let p = 0; p < TORNADO_PARTICLES_PER_STRAND; p++){
+      // indexT: この粒の「螺旋に沿った基準位置」(0〜1、strand上で等間隔)。
+      // そこへ共通のflowTを足し込み、下からもう1粒沸いてくるように循環させる。
+      const indexT = p / TORNADO_PARTICLES_PER_STRAND;
+      const hf = (indexT + tornadoFlowT) % 1;
+      const angle = strandPhase + hf * TORNADO_PARTICLE_TURNS * Math.PI * 2;
+      const taper = 0.35 + 0.65 * (1 - hf); // 根元が太く、上ほど滑らかに窄まる(ランダム無し)
+      const r = Math.max(0.05, baseRadiusM * 0.72 * taper);
+      const y = hf * loopHeightM;
+      const x = tornado.x + Math.cos(angle) * r;
+      const z = tornado.z + Math.sin(angle) * r;
+      tornadoParticleDummy.position.set(x, y, z);
+      tornadoParticleDummy.rotation.set(0, 0, 0); // 傾きのランダム揺れは付けない(不規則に蠢いて見える原因だったため)
+      const sc = (0.55 + 0.55 * (1 - hf)) * Math.max(0.15, baseRadiusM / 3.2);
+      tornadoParticleDummy.scale.set(sc, sc, sc);
+      tornadoParticleDummy.updateMatrix();
+      tornadoParticles.setMatrixAt(idx, tornadoParticleDummy.matrix);
+      idx++;
+    }
   }
   tornadoParticles.instanceMatrix.needsUpdate = true;
 }
