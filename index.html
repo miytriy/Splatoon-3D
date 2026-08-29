@@ -2344,9 +2344,11 @@ function resetSpecialState(keepGauge){
   tornado.active = false;
   tornado.paintedPoints = 0;
   if (tornadoMesh){ tornadoMesh.visible = false; }
+  if (typeof tornadoCore !== 'undefined'){ tornadoCore.visible = false; }
   if (tornadoRing){ tornadoRing.visible = false; }
   if (tornadoWarnRing){ tornadoWarnRing.visible = false; }
   if (typeof updateTornadoSparks === 'function') updateTornadoSparks(0, 0, false);
+  if (typeof updateTornadoParticles === 'function') updateTornadoParticles(0, 0, 1, false);
 
   superShotProjectiles.forEach(p => scene.remove(p.mesh));
   superShotProjectiles.length = 0;
@@ -2436,71 +2438,90 @@ const guideMat = new THREE.MeshBasicMaterial({ color: TEAM_COLOR });
 const tornado = { active: false, x: 0, z: 0, framesElapsed: 0, paintedPoints: 0, dissolveFramesElapsed: 0 };
 
 // ==========================================================================
-// トルネードの見た目 — 参照動画(アメフラシ発動時、地面から真上へ途切れず
-// 伸び続ける、太いインクそのものでできた竜巻)を再現する。リボンではなく
-// 「ねじれながら立ち上る一本の太いインクの柱」にする:
-//   - createInkColumnGeometry(): 円柱を土台に、高さ方向へ螺旋状の膨らみを
-//     ベイクした形状を作る(表面が波打つことで「渦を巻くインク」に見える)。
-//     回転させると、この螺旋の膨らみが上へ流れていくように見える。
-//   - 高さは非常に大きく(TORNADO_VISUAL_HEIGHT_M)取り、シーンのフォグに
-//     溶け込むまで途切れさせない(=見た目上「Y軸方向に無限」に伸び続ける)。
-//   - 内側にもう一回り細い明るいコアを重ね、外側とは逆向き・別速度で回す
-//     ことで、単なる貼り付けでなく内部から沸き立っているように見せる。
+// トルネードの見た目 — 参照動画をよく見ると、竜巻は一枚のメッシュではなく
+// 「無数の小さなインクの粒それぞれが螺旋を描きながら舞い上がる」ことで
+// 竜巻の形になっている。そのため、面(ソリッドな柱)ではなく、多数の小さな
+// インク粒(InstancedMesh)を、それぞれ独立した角度・上昇速度で回転上昇
+// させる方式に切り替える。
+//   - 各粒は「どの巻き(strand)に属するか」「現在の角度・高さ・上昇速度」を
+//     個別に持ち、毎フレーム角度を進め、高さを上げていく。
+//   - 高さが可視域(TORNADO_PARTICLE_LOOP_HEIGHT_M、発動直後の急拡大込みで
+//     動的に変わる)を超えたら根元(高さ0)へ戻す — 個々の粒は有限のループを
+//     描いているが、大量の粒が位相をずらして常時循環しているため、
+//     全体としては「Y軸方向に果てしなく伸び続けている」ように見える。
+//   - 半径は根元が太く、上に行くほど窄まるテーパーを掛け、strandごとに
+//     内側/外側の層を作ることで密度のある渦に見せる。
 // ==========================================================================
-function createInkColumnGeometry(height, radiusBottom, radiusTop, radialSegments, heightSegments, turns, waveAmp, waveLobes){
-  const geo = new THREE.CylinderGeometry(radiusTop, radiusBottom, height, radialSegments, heightSegments, true);
-  const pos = geo.attributes.position;
-  for (let i = 0; i < pos.count; i++){
-    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-    const angle = Math.atan2(z, x);
-    const radius = Math.hypot(x, z);
-    const t = y / height + 0.5; // 0(底)〜1(頂上)
-    const spiralAngle = angle + t * turns * Math.PI * 2;
-    const wob = 1 + waveAmp * Math.sin(spiralAngle * waveLobes);
-    const newRadius = radius * wob;
-    pos.setX(i, Math.cos(angle) * newRadius);
-    pos.setZ(i, Math.sin(angle) * newRadius);
-  }
-  pos.needsUpdate = true;
-  geo.computeVertexNormals();
-  return geo;
+const tornadoMesh = new THREE.Group(); // 現状は当たり判定などの位置基準としてのみ残す(可視要素は持たない)
+
+const TORNADO_PARTICLE_COUNT = 360;
+const TORNADO_PARTICLE_STRANDS = 7;
+const TORNADO_PARTICLE_LOOP_HEIGHT_M = 42; // 個々の粒が上りきってループする高さ(この高さ自体はフォグで見えなくなる距離感)
+
+const tornadoParticleGeo = new THREE.SphereGeometry(0.15, 6, 5);
+tornadoParticleGeo.scale(1, 1.7, 1); // 縦に潰して雫っぽい形にする
+const tornadoParticleMat = new THREE.MeshStandardMaterial({
+  color: 0xffce3d, roughness: 0.4, metalness: 0.0,
+  emissive: 0xff8a1f, emissiveIntensity: 0.22,
+});
+const tornadoParticles = new THREE.InstancedMesh(tornadoParticleGeo, tornadoParticleMat, TORNADO_PARTICLE_COUNT);
+tornadoParticles.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+tornadoParticles.visible = false;
+scene.add(tornadoParticles);
+const tornadoParticleDummy = new THREE.Object3D();
+
+const tornadoParticleState = [];
+for (let i = 0; i < TORNADO_PARTICLE_COUNT; i++){
+  const strand = i % TORNADO_PARTICLE_STRANDS;
+  tornadoParticleState.push({
+    phase: Math.random() * Math.PI * 2,
+    angularSpeed: 6.5 + Math.random() * 4.5,
+    heightM: Math.random() * TORNADO_PARTICLE_LOOP_HEIGHT_M,
+    riseSpeedMps: 4.5 + Math.random() * 3.0,
+    shellMul: 0.5 + 0.55 * (strand / (TORNADO_PARTICLE_STRANDS - 1)),
+    wobblePhase: Math.random() * Math.PI * 2,
+    scaleJitter: 0.65 + Math.random() * 0.7,
+  });
 }
 
-const TORNADO_VISUAL_HEIGHT_M = 140; // 竜巻の見た目上の高さ。カメラのフォグ(far=90)に溶け込むまで途切れさせず、Y軸方向へ果てしなく伸びているように見せる
-const tornadoMesh = new THREE.Group();
-
-const tornadoOuterMat = new THREE.MeshStandardMaterial({
-  color: 0xffcf3d, roughness: 0.35, metalness: 0.05,
-  transparent: true, opacity: 0.94, side: THREE.DoubleSide,
-  emissive: 0xff9a1f, emissiveIntensity: 0.25,
-});
-const tornadoOuterGeo = createInkColumnGeometry(1, 1.0, 0.78, 20, 220, 40, 0.32, 3);
-const tornadoOuter = new THREE.Mesh(tornadoOuterGeo, tornadoOuterMat);
-tornadoOuter.position.y = 0.5;
-tornadoMesh.add(tornadoOuter);
-
-const tornadoInnerMat = new THREE.MeshBasicMaterial({
-  color: 0xfff6c2, transparent: true, opacity: 0.55,
-  blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
-});
-const tornadoInnerGeo = createInkColumnGeometry(1, 0.5, 0.34, 14, 160, 55, 0.4, 2);
-const tornadoInner = new THREE.Mesh(tornadoInnerGeo, tornadoInnerMat);
-tornadoInner.position.y = 0.5;
-tornadoMesh.add(tornadoInner);
+// 竜巻本体を「無数のインク粒」で描く。baseRadiusM=見た目上の根元半径、
+// loopHeightM=この瞬間の可視ループ高さ(発動直後は0から急拡大させる)。
+function updateTornadoParticles(dt, baseRadiusM, loopHeightM, active){
+  tornadoParticles.visible = active;
+  if (!active) return;
+  for (let i = 0; i < TORNADO_PARTICLE_COUNT; i++){
+    const s = tornadoParticleState[i];
+    s.phase += s.angularSpeed * dt;
+    s.heightM += s.riseSpeedMps * dt;
+    if (s.heightM > loopHeightM) s.heightM -= loopHeightM;
+    const hf = loopHeightM > 0 ? Math.min(1, s.heightM / loopHeightM) : 0;
+    const taper = 1 - 0.55 * hf;
+    const wob = 0.14 * Math.sin(s.wobblePhase + s.phase * 2.4);
+    const r = Math.max(0.04, baseRadiusM * s.shellMul * taper + baseRadiusM * wob);
+    const x = tornado.x + Math.cos(s.phase) * r;
+    const z = tornado.z + Math.sin(s.phase) * r;
+    tornadoParticleDummy.position.set(x, s.heightM, z);
+    tornadoParticleDummy.rotation.set(0.3 * Math.sin(s.wobblePhase), s.phase + Math.PI / 2, 0);
+    const sc = s.scaleJitter * (0.55 + 0.55 * (1 - hf)) * Math.max(0.15, baseRadiusM / 3.2);
+    tornadoParticleDummy.scale.set(sc, sc, sc);
+    tornadoParticleDummy.updateMatrix();
+    tornadoParticles.setMatrixAt(i, tornadoParticleDummy.matrix);
+  }
+  tornadoParticles.instanceMatrix.needsUpdate = true;
+}
 
 // 足元の明るいコア(下部だけ強く光らせて、地面から噴き出している感を出す)
 const tornadoCoreMat = new THREE.MeshBasicMaterial({ color: 0xfff3c4, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false });
-const tornadoCore = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.65, 1, 16, 1, true), tornadoCoreMat);
-tornadoCore.position.y = 0.5;
-tornadoMesh.add(tornadoCore);
+const tornadoCoreGeo = new THREE.CylinderGeometry(0.35, 0.65, 1, 16, 1, true);
+tornadoCoreGeo.translate(0, 0.5, 0); // 底面がy=0に来るようにし、位置(x,0,z)にそのまま置けば地面から生えて見えるようにする
+const tornadoCore = new THREE.Mesh(tornadoCoreGeo, tornadoCoreMat);
+tornadoCore.visible = false;
+scene.add(tornadoCore);
 
 const tornadoRing = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.02, 24), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, side: THREE.DoubleSide }));
 tornadoRing.rotation.x = -Math.PI / 2;
 tornadoRing.position.y = 0.02;
-scene.add(tornadoRing); // リング(地面の光の輪)は高さスケールの影響を受けないよう、tornadoMeshの外に独立して置く
-
-tornadoMesh.visible = false;
-scene.add(tornadoMesh);
+scene.add(tornadoRing);
 
 // 足元から飛び散るインクの破片(参照動画の、竜巻の根本で跳ねる細かい
 // 黄色い粒を再現する)。個数分のメッシュを使い回し、毎フレーム軌道だけを
@@ -2614,6 +2635,8 @@ function landTornadoAt(x, z){
   player.spLockedFramesLeft = Math.max(player.spLockedFramesLeft, sp.burstVisualFrames);
   tornadoMesh.visible = true;
   tornadoMesh.position.set(x, 0, z);
+  tornadoCore.visible = true;
+  tornadoCore.position.set(x, 0, z);
   tornadoRing.visible = true;
   tornadoRing.position.set(x, 0.02, z);
   paintTornadoTick();
@@ -3029,19 +3052,15 @@ function updateSpecial(dt){
   } else if (player.specialPhase === 'tornado'){
     player.specialPhaseFramesLeft -= framesDelta;
     tornado.framesElapsed += framesDelta;
-    // 外側・内側・足元コアをそれぞれ違う速度・向きで回すことで、うねりながら
-    // 立ち上る一本のインクの柱に見せる(螺旋状の膨らみは形状側に焼き込んで
-    // あるので、回転させるだけで「渦が上へ流れていく」ように見える)。
-    tornadoOuter.rotation.y += dt * 3.2;
-    tornadoInner.rotation.y -= dt * 5.0;
     tornadoCore.rotation.y -= dt * 6;
     const growth = currentTornadoRadiusFraction();
     // 高さは参照動画のように「一瞬でほぼ全高まで噴き上がる」動きにするため、
     // 太さの成長(growth、0.9sかけて滑らかに)より早いカーブ(×3)で立ち上げる。
     const heightGrowth = Math.min(1, growth * 3);
     const rM = linesToMeters(currentTornadoPaintRadiusLines());
-    tornadoMesh.scale.set(rM * 0.85, TORNADO_VISUAL_HEIGHT_M * heightGrowth, rM * 0.85);
+    tornadoCore.scale.set(rM * 0.5, 1.4 * heightGrowth, rM * 0.5);
     tornadoRing.scale.setScalar(rM);
+    updateTornadoParticles(dt, rM, TORNADO_PARTICLE_LOOP_HEIGHT_M * heightGrowth, true);
     updateTornadoSparks(dt, rM, true);
     paintTornadoTick();
     applyTornadoDamage(framesDelta);
@@ -3054,17 +3073,18 @@ function updateSpecial(dt){
     player.specialPhaseFramesLeft -= framesDelta;
     tornado.dissolveFramesElapsed += framesDelta;
     const collapse = Math.max(0, 1 - tornado.dissolveFramesElapsed / sp.dissolveFrames);
-    tornadoOuter.rotation.y += dt * 5.5; // 収束中は渦の勢いを増して締まっていくように見せる
-    tornadoInner.rotation.y -= dt * 8.5;
     tornadoCore.rotation.y -= dt * 9;
-    const rM = linesToMeters(currentTornadoPaintRadiusLines()) * 0.85 * collapse;
-    tornadoMesh.scale.set(rM, TORNADO_VISUAL_HEIGHT_M * collapse, rM);
+    const rM = linesToMeters(currentTornadoPaintRadiusLines()) * collapse;
+    tornadoCore.scale.set(rM * 0.5, 1.4 * collapse, rM * 0.5);
     tornadoRing.scale.setScalar(linesToMeters(currentTornadoPaintRadiusLines()) * collapse);
-    updateTornadoSparks(dt, linesToMeters(currentTornadoPaintRadiusLines()) * collapse, collapse > 0.02);
+    updateTornadoParticles(dt, rM, TORNADO_PARTICLE_LOOP_HEIGHT_M * collapse, collapse > 0.02);
+    updateTornadoSparks(dt, rM, collapse > 0.02);
     if (player.specialPhaseFramesLeft <= 0){
       tornado.active = false;
       tornadoMesh.visible = false;
+      tornadoCore.visible = false;
       tornadoRing.visible = false;
+      updateTornadoParticles(dt, 0, 1, false);
       updateTornadoSparks(dt, 0, false);
       player.specialPhase = 'none';
     }
