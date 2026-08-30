@@ -1418,15 +1418,13 @@ function getCurrentEffectiveSpreadDeg(){
 }
 
 function updateReticle(){
-  // 基準点(cx,cy): 以前は画面中央に固定していたが、灰色レティクル・
-  // 白いリング/ドット・拡散を示す4本の線をまとめて「仮想カーソル座標」に
-  // 追従させる。イカ/ヒト状態を問わず、この一式の位置関係(オフセットの
-  // 計算式)は変えない — 基準点だけが動く。
+  // 基準点(cx,cy): 白いリング/ドット・拡散を示す4本の線は、これまで通り
+  // 「仮想カーソル座標」に追従させる(この一式の位置関係は変えない)。
+  // 灰色レティクルは別の意味(有効射程限界での理論上の到達点)を持つため、
+  // ここでは動かさず、updateGrayReticle()側で独立して位置決めする。
   const cx = reticleCursorX;
   const cy = reticleCursorY;
 
-  reticleGray.style.left = cx + 'px';
-  reticleGray.style.top = cy + 'px';
   reticleRingEl.style.left = cx + 'px';
   reticleRingEl.style.top = cy + 'px';
   reticleDotEl.style.left = cx + 'px';
@@ -1501,6 +1499,37 @@ function updateTargetReticle(){
   targetXEl.style.left = px + 'px';
   targetXEl.style.top = py + 'px';
   targetXEl.style.display = hit.object.userData.isEnemy ? 'block' : 'none';
+}
+
+// 灰色レティクル: 「途中に何も遮蔽物が無かった場合、有効射程
+// (WEAPON.maxRangeLines)の地点で弾が到達するはずの理論上の点」を表す。
+// target-reticle(オレンジ)のようなレイキャストは行わず、実際に何かへ
+// 当たるかどうかに関係なく、照準方向 × 有効射程の距離を単純に投影する。
+// 「実際にそれより手前で着弾する場合の着弾地点」はオレンジの方が示す。
+function updateGrayReticle(){
+  const daiouActiveNow = currentSpecial().type === 'daioika' && player.specialPhase !== 'none';
+  const showable = form === 'human' && !daiouActiveNow && !throwAimHeld && pointerLocked && activeOverlay === null;
+  if (!showable){
+    reticleGray.style.display = 'none';
+    return;
+  }
+
+  const dir = getAimDirection();
+  const muzzleOrigin = playerGroup.position.clone().add(new THREE.Vector3(0, MUZZLE_HEIGHT, 0));
+  const maxRangeM = linesToMeters(WEAPON.maxRangeLines);
+  const farPoint = muzzleOrigin.clone().addScaledVector(dir, maxRangeM);
+
+  const ndc = farPoint.clone().project(camera);
+  if (ndc.z > 1){
+    reticleGray.style.display = 'none';
+    return;
+  }
+
+  const px = (ndc.x * 0.5 + 0.5) * window.innerWidth;
+  const py = (1 - (ndc.y * 0.5 + 0.5)) * window.innerHeight;
+  reticleGray.style.display = 'block';
+  reticleGray.style.left = px + 'px';
+  reticleGray.style.top = py + 'px';
 }
 
 // ==========================================================================
@@ -3457,6 +3486,7 @@ function loop(now){
     updateSensorMarkerPosition();
     updateReticle();
     updateTargetReticle();
+    updateGrayReticle();
     updateThrowPreview();
     updateDamagePopups();
   }
