@@ -92,13 +92,6 @@
     border:1.6px solid rgba(255,255,255,.92);
     box-shadow: 0 0 0 1px rgba(0,0,0,.4);
   }
-  .reticle-ring-gray{
-    position:absolute; top:0; left:0; width:22px; height:22px;
-    transform:translate(-50%,-50%);
-    border-radius:50%;
-    border:1.6px solid rgba(150,150,150,.85);
-    box-shadow: 0 0 0 1px rgba(0,0,0,.35);
-  }
   .reticle-dot{
     position:absolute; top:0; left:0; width:4px; height:4px;
     transform:translate(-50%,-50%);
@@ -249,7 +242,6 @@
     </div>
   </div>
   <div id="reticle">
-    <div id="reticle-gray" class="reticle-ring-gray"></div>
     <div class="reticle-ring"></div>
     <div class="reticle-dot"></div>
     <div id="reticle-line-ne" class="reticle-line diagonal"></div>
@@ -423,7 +415,6 @@ const BALLISTICS_MPS = (() => {
 
 const BULLET_RADIUS_ENEMY_M = (WEAPON.bulletDiameterEnemyDU / 2) / DU_PER_METER;
 const BULLET_RADIUS_TERRAIN_M = (WEAPON.bulletDiameterTerrainDU / 2) / DU_PER_METER;
-const RETICLE_RESPONSE_RANGE_LINES = 2.4;
 
 const HUMAN_SPEED_DU_PER_F = { light: 1.04, medium: 0.96, heavy: 0.88 };
 const SQUID_SPEED_ON_INK_DU_PER_F = { light: 2.016, medium: 1.920, heavy: 1.728 };
@@ -1260,14 +1251,6 @@ document.addEventListener('pointerlockchange', () => {
   pointerLocked = document.pointerLockElement === renderer.domElement;
   updatePointerLockPromptVisibility();
 });
-// 灰色レティクル(+それに追従する拡散線・白いリング/ドット)の見た目上の
-// 基準点。ポインターロック中はOSカーソル自体は動かないため、生の移動量
-// (movementX/Y)をこちらで積算した「仮想カーソル座標」を代わりに使う。
-// 画面中央を初期値にし、以後は画面端でクランプしながら移動量をそのまま
-// 積み上げる(要望通り、実際のマウスカーソルの動きそのものに追従させる)。
-let reticleCursorX = window.innerWidth / 2;
-let reticleCursorY = window.innerHeight / 2;
-
 document.addEventListener('mousemove', e => {
   if (!pointerLocked) return;
   if (activeOverlay !== null) return;
@@ -1276,8 +1259,6 @@ document.addEventListener('mousemove', e => {
   yaw -= e.movementX * s;
   pitch -= e.movementY * s;
   pitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, pitch));
-  reticleCursorX = Math.max(0, Math.min(window.innerWidth, reticleCursorX + e.movementX));
-  reticleCursorY = Math.max(0, Math.min(window.innerHeight, reticleCursorY + e.movementY));
 });
 
 function updateCamera(dt){
@@ -1402,7 +1383,6 @@ const reticleNE = document.getElementById('reticle-line-ne');
 const reticleNW = document.getElementById('reticle-line-nw');
 const reticleSE = document.getElementById('reticle-line-se');
 const reticleSW = document.getElementById('reticle-line-sw');
-const reticleGray = document.getElementById('reticle-gray');
 const reticleRingEl = document.querySelector('#reticle .reticle-ring');
 const reticleDotEl = document.querySelector('#reticle .reticle-dot');
 const RETICLE_LINE_HALF = 7;
@@ -1417,13 +1397,33 @@ function getCurrentEffectiveSpreadDeg(){
   return baseSpread + currentCorrectionDeg + jumpExtra;
 }
 
+// 基準点(cx,cy): 白いリング/ドット・拡散を示す4本の線一式の位置決めに使う
+// 基準点。「途中に何も遮蔽物が無かった場合、有効射程(WEAPON.maxRangeLines)
+// の地点で弾が到達するはずの理論上の点」を照準方向から直接投影する
+// (target-reticleのようなレイキャストは行わない — 実際に何かへ当たるかは
+// 関係なく、常にこの理論上の到達点を示す)。イカ/ヒト状態を問わず同じ計算
+// で求め、常に表示する。
+function computeReticleAnchor(){
+  const dir = getAimDirection();
+  const muzzleOrigin = playerGroup.position.clone().add(new THREE.Vector3(0, MUZZLE_HEIGHT, 0));
+  const maxRangeM = linesToMeters(WEAPON.maxRangeLines);
+  const farPoint = muzzleOrigin.clone().addScaledVector(dir, maxRangeM);
+  const ndc = farPoint.project(camera);
+  if (ndc.z > 1){
+    // カメラの後方に投影された(理論上ほぼ起きない)場合は、画面中央へ
+    // フォールバックする。
+    return { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+  }
+  return {
+    x: (ndc.x * 0.5 + 0.5) * window.innerWidth,
+    y: (1 - (ndc.y * 0.5 + 0.5)) * window.innerHeight,
+  };
+}
+
 function updateReticle(){
-  // 基準点(cx,cy): 白いリング/ドット・拡散を示す4本の線は、これまで通り
-  // 「仮想カーソル座標」に追従させる(この一式の位置関係は変えない)。
-  // 灰色レティクルは別の意味(有効射程限界での理論上の到達点)を持つため、
-  // ここでは動かさず、updateGrayReticle()側で独立して位置決めする。
-  const cx = reticleCursorX;
-  const cy = reticleCursorY;
+  const anchor = computeReticleAnchor();
+  const cx = anchor.x;
+  const cy = anchor.y;
 
   reticleRingEl.style.left = cx + 'px';
   reticleRingEl.style.top = cy + 'px';
@@ -1477,7 +1477,10 @@ function updateTargetReticle(){
   const hits = raycaster.intersectObjects(reticleRaycastTargets, false);
   const hit = hits.length ? hits[0] : null;
 
-  const maxDist = linesToMeters(RETICLE_RESPONSE_RANGE_LINES);
+  // 「有効射程より手前で着弾する場合」の判定なので、しきい値は
+  // レティクル反応射程ではなく実際の有効射程(WEAPON.maxRangeLines)を使う
+  // — 白レティクル(拡散線付き)が示す理論上の到達点と同じ基準に揃える。
+  const maxDist = linesToMeters(WEAPON.maxRangeLines);
   const inRange = hit && hit.distance <= maxDist;
 
   if (!inRange){
@@ -1499,37 +1502,6 @@ function updateTargetReticle(){
   targetXEl.style.left = px + 'px';
   targetXEl.style.top = py + 'px';
   targetXEl.style.display = hit.object.userData.isEnemy ? 'block' : 'none';
-}
-
-// 灰色レティクル: 「途中に何も遮蔽物が無かった場合、有効射程
-// (WEAPON.maxRangeLines)の地点で弾が到達するはずの理論上の点」を表す。
-// target-reticle(オレンジ)のようなレイキャストは行わず、実際に何かへ
-// 当たるかどうかに関係なく、照準方向 × 有効射程の距離を単純に投影する。
-// 「実際にそれより手前で着弾する場合の着弾地点」はオレンジの方が示す。
-function updateGrayReticle(){
-  const daiouActiveNow = currentSpecial().type === 'daioika' && player.specialPhase !== 'none';
-  const showable = form === 'human' && !daiouActiveNow && !throwAimHeld && pointerLocked && activeOverlay === null;
-  if (!showable){
-    reticleGray.style.display = 'none';
-    return;
-  }
-
-  const dir = getAimDirection();
-  const muzzleOrigin = playerGroup.position.clone().add(new THREE.Vector3(0, MUZZLE_HEIGHT, 0));
-  const maxRangeM = linesToMeters(WEAPON.maxRangeLines);
-  const farPoint = muzzleOrigin.clone().addScaledVector(dir, maxRangeM);
-
-  const ndc = farPoint.clone().project(camera);
-  if (ndc.z > 1){
-    reticleGray.style.display = 'none';
-    return;
-  }
-
-  const px = (ndc.x * 0.5 + 0.5) * window.innerWidth;
-  const py = (1 - (ndc.y * 0.5 + 0.5)) * window.innerHeight;
-  reticleGray.style.display = 'block';
-  reticleGray.style.left = px + 'px';
-  reticleGray.style.top = py + 'px';
 }
 
 // ==========================================================================
@@ -3486,7 +3458,6 @@ function loop(now){
     updateSensorMarkerPosition();
     updateReticle();
     updateTargetReticle();
-    updateGrayReticle();
     updateThrowPreview();
     updateDamagePopups();
   }
