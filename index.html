@@ -112,19 +112,19 @@
     pointer-events:none; display:none;
   }
   .target-ring{
-    position:absolute; top:0; left:0; width:26px; height:26px;
+    position:absolute; top:0; left:0; width:15px; height:15px;
     transform:translate(-50%,-50%);
     border-radius:50%;
-    border:2px solid #ff9a1f;
+    border:1.6px solid #ff9a1f;
     box-shadow: 0 0 0 1px rgba(0,0,0,.45), 0 0 6px rgba(255,120,20,.6);
   }
   .target-x{
-    position:absolute; top:0; left:0; width:26px; height:26px;
+    position:absolute; top:0; left:0; width:15px; height:15px;
     transform:translate(-50%,-50%);
     display:none;
   }
   .target-x span{
-    position:absolute; top:50%; left:50%; width:17px; height:2px;
+    position:absolute; top:50%; left:50%; width:10px; height:2px;
     background:#ff9a1f; box-shadow:0 0 0 1px rgba(0,0,0,.45);
     transform-origin:center;
   }
@@ -1465,7 +1465,7 @@ const targetXEl = targetReticleEl.querySelector('.target-x');
 
 function updateTargetReticle(){
   const daiouActiveNow = currentSpecial().type === 'daioika' && player.specialPhase !== 'none';
-  const showable = form === 'human' && !daiouActiveNow && !throwAimHeld && pointerLocked && activeOverlay === null;
+  const showable = !daiouActiveNow && !throwAimHeld && pointerLocked && activeOverlay === null;
   if (!showable){
     targetReticleEl.style.display = 'none';
     return;
