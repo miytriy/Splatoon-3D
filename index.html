@@ -333,10 +333,15 @@ const WEAPON = {
   name: 'スプラシューター',
   weightClass: 'medium',
   isBoldMarker: false,
-  maxRangeLines: 2.7,
+  // 【距離】(公式wiki実測値に統一。カッコ内はDU=ライン×50)
+  effectiveRangeLines: 2.6,       // 有効射程 130DU — 白/オレンジ両レティクルの基準はこちら
+  maxRangeLines: 2.7,             // カス当たり射程 135DU — 実際の弾の飛距離カットオフ(最小ダメージでも当たる限界)に使う
+  confirmedKillRangeLines: 2.5,   // 確定数維持射程 125DU(参考値。現状ロジックには未使用)
+  reticleResponseRangeLines: 2.4, // レティクル反応距離 120DU(参考値。現状ロジックには未使用)
+  paintRangeLines: 3.4,           // 塗り射程 170DU(参考値。実際の塗りは着弾/中間/足元塗りの実測値から決まるため未使用)
   fireIntervalSec: framesToSeconds(6),
   inkPerShot: 100 / 108,
-  speedDU: 22,
+  speedDU: 22.66,
   damageFalloff: { startFrame: 8, startDamage: 36.0, endFrame: 40, endDamage: 18.0, perFrameDecay: 0.5625 },
   spreadDeg: 4.86,
 
@@ -350,7 +355,7 @@ const WEAPON = {
   singleShotPaintPoints: 4.0,
 
   ballistics: {
-    A_initialSpeedDU: 22,
+    A_initialSpeedDU: 22.66,
     B_straightFrames: 4,
     C_brakeMaxSpeedDU: 5.5,
     D_brakeDrag: 0.35,
@@ -373,8 +378,13 @@ const WEAPON = {
   maxCorrectionDeg: 1.215,
   correctionRecoveryPerFrameDeg: 0.0729,
 
-  bulletDiameterEnemyDU: 0.114,
-  bulletDiameterTerrainDU: 0.08,
+  // 弾の大きさは「直径・DU単位」で管理する。以前はライン単位の値(0.114/0.08)を
+  // そのままDUの数値として代入してしまっていたバグがあった(ライン→DUは
+  // ×50で変換する必要がある。0.114ライン=5.7DU、0.08ライン=4.0DU)。
+  // このバグにより、実際の弾サイズ判定半径が本来の1/50(数mm)しかなく、
+  // ほぼ無いに等しい大きさになっていた。
+  bulletDiameterEnemyDU: 5.7,
+  bulletDiameterTerrainDU: 4.0,
 };
 
 const QUICKBOMB = {
@@ -1398,15 +1408,15 @@ function getCurrentEffectiveSpreadDeg(){
 }
 
 // 基準点(cx,cy): 白いリング/ドット・拡散を示す4本の線一式の位置決めに使う
-// 基準点。「途中に何も遮蔽物が無かった場合、有効射程(WEAPON.maxRangeLines)
-// の地点で弾が到達するはずの理論上の点」を照準方向から直接投影する
-// (target-reticleのようなレイキャストは行わない — 実際に何かへ当たるかは
-// 関係なく、常にこの理論上の到達点を示す)。イカ/ヒト状態を問わず同じ計算
-// で求め、常に表示する。
+// 基準点。「途中に何も遮蔽物が無かった場合、有効射程(WEAPON.effectiveRangeLines
+// = 2.6ライン、カス当たり射程とは別の値)の地点で弾が到達するはずの理論上の
+// 点」を照準方向から直接投影する(target-reticleのようなレイキャストは行わ
+// ない — 実際に何かへ当たるかは関係なく、常にこの理論上の到達点を示す)。
+// イカ/ヒト状態を問わず同じ計算で求め、常に表示する。
 function computeReticleAnchor(){
   const dir = getAimDirection();
   const muzzleOrigin = playerGroup.position.clone().add(new THREE.Vector3(0, MUZZLE_HEIGHT, 0));
-  const maxRangeM = linesToMeters(WEAPON.maxRangeLines);
+  const maxRangeM = linesToMeters(WEAPON.effectiveRangeLines);
   const farPoint = muzzleOrigin.clone().addScaledVector(dir, maxRangeM);
   const ndc = farPoint.project(camera);
   if (ndc.z > 1){
@@ -1478,9 +1488,10 @@ function updateTargetReticle(){
   const hit = hits.length ? hits[0] : null;
 
   // 「有効射程より手前で着弾する場合」の判定なので、しきい値は
-  // レティクル反応射程ではなく実際の有効射程(WEAPON.maxRangeLines)を使う
-  // — 白レティクル(拡散線付き)が示す理論上の到達点と同じ基準に揃える。
-  const maxDist = linesToMeters(WEAPON.maxRangeLines);
+  // レティクル反応射程(2.4ライン)ではなく実際の有効射程(WEAPON.effectiveRangeLines
+  // = 2.6ライン)を使う — 白レティクル(拡散線付き)が示す理論上の到達点と
+  // 同じ基準に揃える。
+  const maxDist = linesToMeters(WEAPON.effectiveRangeLines);
   const inRange = hit && hit.distance <= maxDist;
 
   if (!inRange){
