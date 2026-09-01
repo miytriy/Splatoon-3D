@@ -1509,7 +1509,11 @@ function updateTargetReticle(){
 // ==========================================================================
 const BOMB_COLLISION_SUBSTEP_M = 0.05;
 
-function stepThrowablePhysics(pos, vel, dt, traveledSoFar, maxRangeM, selfCheckMinTraveled){
+// 「ぶつかって爆発する」判定は、自分自身(投げた本人)や味方チームの
+// プレイヤーを対象に含めない(実機の仕様通り)。そのため、この関数は
+// 自分自身への当たり判定を一切行わない — 投げた本人の体はすり抜ける。
+// 対象になるのは敵(ダミー)・地形(壁・床)のみ。
+function stepThrowablePhysics(pos, vel, dt, traveledSoFar, maxRangeM){
   const speed = vel.length();
   const fullDistance = speed * dt;
   const steps = Math.max(1, Math.ceil(fullDistance / BOMB_COLLISION_SUBSTEP_M));
@@ -1536,15 +1540,6 @@ function stepThrowablePhysics(pos, vel, dt, traveledSoFar, maxRangeM, selfCheckM
       } };
     }
 
-    const hitSelf = selfCheckMinTraveled !== undefined && traveled > selfCheckMinTraveled &&
-      capsuleHitTest(next, playerGroup.position.x, playerGroup.position.z, 0, HUMAN_HITBOX, QUICKBOMB_RADIUS_M);
-    if (hitSelf){
-      return { hit: {
-        type: 'self', pos: next.clone(), hitDummy: false,
-        normal: capsuleSurfaceNormal(next, playerGroup.position.x, playerGroup.position.z, 0, HUMAN_HITBOX),
-      } };
-    }
-
     const wallHit = resolveWallHit(next);
     if (wallHit){
       return { hit: { type: 'wall', pos: wallHit.pos, hitDummy: false, normal: wallHit.normal } };
@@ -1565,6 +1560,7 @@ function stepThrowablePhysics(pos, vel, dt, traveledSoFar, maxRangeM, selfCheckM
     }
 
     curPos = next;
+
   }
 
   return { pos: curPos, vel: curVel, traveled };
@@ -1592,14 +1588,13 @@ function simulateBombLanding(origin, vel){
   const maxRangeM = linesToMeters(QUICKBOMB.rangeInertiaLines);
   const simDt = 1 / FPS;
   const maxSteps = FPS * 4;
-  const selfCheckMinTraveled = QUICKBOMB_RADIUS_M + HUMAN_HITBOX.radius;
   const points = [origin.clone()];
   let pos = origin.clone();
   let vel2 = vel.clone();
   let traveled = 0;
 
   for (let i = 0; i < maxSteps; i++){
-    const result = stepThrowablePhysics(pos, vel2, simDt, traveled, maxRangeM, selfCheckMinTraveled);
+    const result = stepThrowablePhysics(pos, vel2, simDt, traveled, maxRangeM);
     if (result.hit){
       points.push(result.hit.pos);
       return {
@@ -1724,7 +1719,6 @@ function throwBomb(){
 
   bombs.push({
     mesh, pos: origin.clone(), vel, traveled: 0, alive: true,
-    selfCheckMinTraveled: QUICKBOMB_RADIUS_M + HUMAN_HITBOX.radius,
   });
 }
 
@@ -1782,10 +1776,11 @@ function updateBombs(dt){
     if (!bomb.alive) continue;
 
     const maxRangeM = linesToMeters(QUICKBOMB.rangeInertiaLines);
-    const result = stepThrowablePhysics(bomb.pos, bomb.vel, dt, bomb.traveled, maxRangeM, bomb.selfCheckMinTraveled);
+    const result = stepThrowablePhysics(bomb.pos, bomb.vel, dt, bomb.traveled, maxRangeM);
 
     if (result.hit){
       const h = result.hit;
+      bomb.mesh.position.copy(h.pos); // 消える直前まで、実際に当たった位置まで見た目を追従させておく
       if (h.type === 'dummy'){
         explodeBomb(h.pos, true);
       } else if (h.type === 'wall'){
@@ -2648,7 +2643,7 @@ function launchGuide(){
 function updateGuideProjectile(dt){
   if (!guideProjectile) return;
   const g = guideProjectile;
-  const result = stepThrowablePhysics(g.pos, g.vel, dt, g.traveled, g.range, undefined);
+  const result = stepThrowablePhysics(g.pos, g.vel, dt, g.traveled, g.range);
   if (result.hit){
     landTornadoAt(result.hit.pos.x, result.hit.pos.z);
     if (guideMesh){ scene.remove(guideMesh); guideMesh = null; }
@@ -2779,7 +2774,7 @@ function updateSuperShotProjectiles(dt){
   const sp = SUPER_SHOT_SPECIAL;
   for (const p of superShotProjectiles){
     if (!p.alive) continue;
-    const result = stepThrowablePhysics(p.pos, p.vel, dt, p.traveled, p.range, undefined);
+    const result = stepThrowablePhysics(p.pos, p.vel, dt, p.traveled, p.range);
     const intervalM = linesToMeters(sp.trailRadiusLines) * 2;
     if (result.hit){
       const h = result.hit;
