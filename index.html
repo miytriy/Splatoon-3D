@@ -824,13 +824,29 @@ function getSplatRadiusLines(weapon, traveledLines){
   const t = (traveledLines - f.startDist) / (f.endDist - f.startDist);
   return f.startRadius + (f.endRadius - f.startRadius) * t;
 }
-function getStretchRatio(weapon, traveledLines){
+// 着弾塗りの前方伸び率 — 「距離」ではなく、着弾の瞬間に実際に残っていた
+// 前進方向の勢い(=速度ベクトルの水平成分)から求める。
+//   momentumRatio = 着弾時の水平速度 ÷ 初速
+//     - 直進フレーム中(速度=初速のまま)かつ、ほぼ水平に近い角度で着弾
+//       するほど水平速度成分が初速に近づき、momentumRatio→1(伸び最大、
+//       weapon.stretchFalloff.startRatio)。
+//     - 減速・自由落下で弾速そのものが落ちるほど、または着弾角度が急に
+//       なるほど(=垂直方向の速度成分が増え、水平成分が減る)、
+//       momentumRatio→0(伸びなし、正円に近づく)。
+//   この1本の式だけで、
+//     ・着弾角度が大きい(垂直に近い)ほど伸びが縮む
+//     ・弾が飛んだ高さが高い(≒自由落下が進んで減速している)ほど伸びが縮む
+//     ・直進フレーム中は伸びやすく、減速後は伸びにくい
+//     (例: 真下撃ちは直進フレーム中に着弾するので速度自体は初速のままだが
+//      角度がほぼ垂直なのでわずかしか伸びない/真上撃ちは着弾までに自由落下で
+//      減速しきり、かつ角度もほぼ垂直なのでほとんど正円になる)
+//   という3つの要因すべてを自然に再現できる。
+function getStretchRatioFromVelocity(weapon, velocityAtImpact, initialSpeedMPerSec){
   const f = weapon.stretchFalloff;
-  if (!f) return 1;
-  if (traveledLines <= f.startDist) return f.startRatio;
-  if (traveledLines >= f.endDist) return f.endRatio;
-  const t = (traveledLines - f.startDist) / (f.endDist - f.startDist);
-  return f.startRatio + (f.endRatio - f.startRatio) * t;
+  if (!f || !initialSpeedMPerSec) return 1;
+  const horizontalSpeed = Math.hypot(velocityAtImpact.x, velocityAtImpact.z);
+  const momentumRatio = Math.max(0, Math.min(1, horizontalSpeed / initialSpeedMPerSec));
+  return 1 + (f.startRatio - 1) * momentumRatio;
 }
 
 function shouldFootPaint(weapon, shotIndex){
@@ -2184,7 +2200,8 @@ function fireShot(){
 function paintImpactSplat(p, landPos){
   const traveledLines = p.traveled / METERS_PER_LINE;
   const radiusLines = getSplatRadiusLines(WEAPON, traveledLines);
-  const stretchRatio = getStretchRatio(WEAPON, traveledLines);
+  const initialSpeedMPerSec = duPerFrameToMPerSec(WEAPON.ballistics.A_initialSpeedDU);
+  const stretchRatio = getStretchRatioFromVelocity(WEAPON, p.vel, initialSpeedMPerSec);
   paintSplatStretchedAtWorld(landPos.x, landPos.z, radiusLines, p.dirAngleXZ, stretchRatio);
   creditCappedPaintPoints(WEAPON.singleShotPaintPoints);
 }
