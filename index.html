@@ -855,7 +855,7 @@ function shouldFootPaint(weapon, shotIndex){
   return Math.floor(shotIndex / avg) > Math.floor((shotIndex - 1) / avg);
 }
 
-const POINTS_PER_LINE_SQUARED = 1 / 0.1265;
+const POINTS_PER_LINE_SQUARED = 1 / 0.127;
 const PAINT_SAMPLE_SIZE = 120;
 const sampleCanvas = document.createElement('canvas');
 sampleCanvas.width = PAINT_SAMPLE_SIZE; sampleCanvas.height = PAINT_SAMPLE_SIZE;
