@@ -674,7 +674,16 @@ const ENEMY_COLOR_CSS = '#b34aff'; // デス演出用の相手チーム色(2D版
 function worldToMapX(wx){ return (wx + WALL_HALF) * MAP_PIXELS_PER_METER; }
 function worldToMapZ(wz){ return (wz + WALL_HALF) * MAP_PIXELS_PER_METER; }
 function metersToMapPx(m){ return m * MAP_PIXELS_PER_METER; }
-function mapLines(n){ return metersToMapPx(linesToMeters(n)); }
+// 塗りの見た目上のスケール補正。実機スクリーンショット(キャラクター本体との
+// 対比)から、現状の「1ライン=5m」をそのまま塗り半径に適用すると、
+// キャラクターに対して塗り跡が明らかに大きすぎることが分かったため、
+// 塗り(着弾/中間/足元すべて)の描画半径にだけこの係数を掛けて縮小する。
+// 有効射程・弾速・移動速度など、塗り以外のゲームロジックの換算
+// (linesToMeters)には一切影響しない。cctx(判定・スコア集計用)とpctx
+// (見た目)の両方に同じ係数がかかるので、「見た目より判定が大きい/小さい」
+// というズレも起きない。
+const PAINT_VISUAL_SCALE = 0.45;
+function mapLines(n){ return metersToMapPx(linesToMeters(n) * PAINT_VISUAL_SCALE); }
 
 function blobPoints(cx, cy, baseRadius, numPoints, irregularity, stretchDir, stretchAmt){
   const points = [];
@@ -855,7 +864,13 @@ function shouldFootPaint(weapon, shotIndex){
   return Math.floor(shotIndex / avg) > Math.floor((shotIndex - 1) / avg);
 }
 
-const POINTS_PER_LINE_SQUARED = 1 / 0.127;
+// 1p ≒ 0.127ライン²(wiki実測ベースの得点換算、こちらが正)。ただし塗りの
+// 描画半径にはPAINT_VISUAL_SCALEで縮小をかけているため、実際に塗られる
+// 面積(px²)はその2乗ぶん(≒0.2025倍)小さくなる。得点(1発あたり最大4.0p)が
+// 見た目の縮小につられて目減りしないよう、その分だけ換算係数側で
+// 補正しておく — 「1p≒0.127ライン²」というゲーム内部の定義自体は変えず、
+// 描画スケールの変更だけを吸収する。
+const POINTS_PER_LINE_SQUARED = (1 / 0.127) / (PAINT_VISUAL_SCALE * PAINT_VISUAL_SCALE);
 const PAINT_SAMPLE_SIZE = 120;
 const sampleCanvas = document.createElement('canvas');
 sampleCanvas.width = PAINT_SAMPLE_SIZE; sampleCanvas.height = PAINT_SAMPLE_SIZE;
