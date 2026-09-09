@@ -864,13 +864,13 @@ function shouldFootPaint(weapon, shotIndex){
   return Math.floor(shotIndex / avg) > Math.floor((shotIndex - 1) / avg);
 }
 
-// 1p ≒ 0.127ライン²(wiki実測ベースの得点換算、こちらが正)。ただし塗りの
-// 描画半径にはPAINT_VISUAL_SCALEで縮小をかけているため、実際に塗られる
-// 面積(px²)はその2乗ぶん(≒0.2025倍)小さくなる。得点(1発あたり最大4.0p)が
-// 見た目の縮小につられて目減りしないよう、その分だけ換算係数側で
-// 補正しておく — 「1p≒0.127ライン²」というゲーム内部の定義自体は変えず、
-// 描画スケールの変更だけを吸収する。
-const POINTS_PER_LINE_SQUARED = (1 / 0.127) / (PAINT_VISUAL_SCALE * PAINT_VISUAL_SCALE);
+// 1p ≒ 0.127ライン²(wiki実測ベースの得点換算)。見た目の塗りサイズ
+// (PAINT_VISUAL_SCALEで縮小済み、実機と一致させたもの)をそのまま採点する
+// — 「実際に画面に塗られた面積」と「加算される得点」を一致させるため、
+// PAINT_VISUAL_SCALE分の水増し補正はしない。結果として単発の得点は
+// 実測面積なりになり、単発上限(4.0p)はあくまで「それを超えない」という
+// 上限としてのみ働く(creditCappedPaintPoints()のMath.min()を参照)。
+const POINTS_PER_LINE_SQUARED = 1 / 0.127;
 const PAINT_SAMPLE_SIZE = 120;
 const sampleCanvas = document.createElement('canvas');
 sampleCanvas.width = PAINT_SAMPLE_SIZE; sampleCanvas.height = PAINT_SAMPLE_SIZE;
