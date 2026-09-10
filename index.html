@@ -2136,8 +2136,10 @@ function updateMovement(dt, firing, actionState){
 // Weapon
 // ==========================================================================
 const projectiles = [];
-const projGeo = new THREE.SphereGeometry(0.05, 8, 8);
-const projMat = new THREE.MeshBasicMaterial({ color: 0xffd8c2 });
+// 弾は「ただの白い小玉」ではなく、実際のインクの弾(インク色に対応する
+// 色・武器の「弾の大きさ」データに基づくサイズ)として描画する。
+const projGeo = new THREE.SphereGeometry(BULLET_RADIUS_ENEMY_M, 10, 8);
+const projMat = new THREE.MeshBasicMaterial({ color: TEAM_COLOR });
 
 let lastShotAt = 0;
 let burstShotCount = 0;
@@ -2789,7 +2791,7 @@ function applyTornadoDamage(framesDelta){
 // スーパーショット — メインを一時的に持ち替えて強力な弾を連射する。
 // --------------------------------------------------------------------------
 const superShotProjectiles = [];
-const superShotGeo = new THREE.SphereGeometry(0.12, 10, 8);
+const superShotGeo = new THREE.SphereGeometry(linesToMeters(SUPER_SHOT_SPECIAL.projectileRadiusLines), 10, 8);
 const superShotMat = new THREE.MeshBasicMaterial({ color: TEAM_COLOR });
 let lastSuperShotAt = -Infinity;
 
