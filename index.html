@@ -2789,10 +2789,15 @@ function applyTornadoDamage(framesDelta){
 
 // --------------------------------------------------------------------------
 // スーパーショット — メインを一時的に持ち替えて強力な弾を連射する。
+// 「縦に伸びる強力な弾」という資料の説明通り、弾自体を丸い玉ではなく、
+// 弾の大きさ(projectileRadiusLines)を基準にした、縦長の小さな竜巻(上が
+// 細く下が太い、常に垂直軸を保ったまま飛びながら回転する)として描画する。
 // --------------------------------------------------------------------------
 const superShotProjectiles = [];
-const superShotGeo = new THREE.SphereGeometry(linesToMeters(SUPER_SHOT_SPECIAL.projectileRadiusLines), 10, 8);
-const superShotMat = new THREE.MeshBasicMaterial({ color: TEAM_COLOR });
+const SUPER_SHOT_RADIUS_M = linesToMeters(SUPER_SHOT_SPECIAL.projectileRadiusLines);
+const SUPER_SHOT_HEIGHT_M = SUPER_SHOT_RADIUS_M * 4.5; // 「弾の大きさ」の径に対して縦長になる高さ
+const superShotGeo = new THREE.CylinderGeometry(SUPER_SHOT_RADIUS_M * 0.32, SUPER_SHOT_RADIUS_M, SUPER_SHOT_HEIGHT_M, 12, 1, true);
+const superShotMat = new THREE.MeshBasicMaterial({ color: TEAM_COLOR, transparent: true, opacity: 0.92, side: THREE.DoubleSide });
 let lastSuperShotAt = -Infinity;
 
 function fireSuperShot(){
@@ -2819,6 +2824,9 @@ function updateSuperShotProjectiles(dt){
   const sp = SUPER_SHOT_SPECIAL;
   for (const p of superShotProjectiles){
     if (!p.alive) continue;
+    // 縦長の竜巻の見た目: 進行方向に関わらず常に垂直軸を保ったまま、
+    // 高速で自転させ続ける(実際の竜巻のように見せるため)。
+    p.mesh.rotation.y += dt * 14;
     const result = stepThrowablePhysics(p.pos, p.vel, dt, p.traveled, p.range);
     const intervalM = linesToMeters(sp.trailRadiusLines) * 2;
     if (result.hit){
