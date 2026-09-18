@@ -2794,9 +2794,9 @@ function applyTornadoDamage(framesDelta){
 // 細く下が太い、常に垂直軸を保ったまま飛びながら回転する)として描画する。
 // --------------------------------------------------------------------------
 const superShotProjectiles = [];
-const SUPER_SHOT_RADIUS_M = linesToMeters(SUPER_SHOT_SPECIAL.projectileRadiusLines);
-const SUPER_SHOT_HEIGHT_M = SUPER_SHOT_RADIUS_M * 4.5; // 「弾の大きさ」の径に対して縦長になる高さ
-const superShotGeo = new THREE.CylinderGeometry(SUPER_SHOT_RADIUS_M * 0.32, SUPER_SHOT_RADIUS_M, SUPER_SHOT_HEIGHT_M, 12, 1, true);
+const SUPER_SHOT_RADIUS_M = linesToMeters(SUPER_SHOT_SPECIAL.projectileRadiusLines); // 太さは「弾の大きさ」データ基準
+const SUPER_SHOT_HEIGHT_M = linesToMeters(1.1) * 2; // 高さはレティクル(照準点)から上下に1.1ラインずつ、計2.2ライン
+const superShotGeo = new THREE.CylinderGeometry(SUPER_SHOT_RADIUS_M * 0.75, SUPER_SHOT_RADIUS_M, SUPER_SHOT_HEIGHT_M, 12, 1, true);
 const superShotMat = new THREE.MeshBasicMaterial({ color: TEAM_COLOR, transparent: true, opacity: 0.92, side: THREE.DoubleSide });
 let lastSuperShotAt = -Infinity;
 
